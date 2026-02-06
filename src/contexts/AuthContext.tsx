@@ -117,8 +117,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
       if (err.code === 'auth/popup-closed-by-user') return;
-      setError('Error al iniciar sesión con Google.');
-      console.error(err);
+      if (err.code === 'auth/cancelled-popup-request') return;
+
+      const errorMessages: Record<string, string> = {
+        'auth/unauthorized-domain': 'Este dominio no esta autorizado en Firebase. Agrega este dominio en Authentication > Settings > Authorized domains.',
+        'auth/operation-not-allowed': 'El proveedor de Google no esta habilitado en Firebase.',
+        'auth/popup-blocked': 'El navegador bloqueo la ventana emergente. Permite las ventanas emergentes e intenta de nuevo.',
+        'auth/internal-error': 'Error interno de Firebase. Verifica la configuracion del proyecto.',
+      };
+
+      setError(errorMessages[err.code] || `Error al iniciar sesion (${err.code || err.message})`);
+      console.error('Auth error:', err.code, err.message);
     }
   }
 
