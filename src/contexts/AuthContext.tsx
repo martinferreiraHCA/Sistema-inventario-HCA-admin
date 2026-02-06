@@ -48,19 +48,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const userRef = doc(db, 'users', user.uid);
     const userSnap = await getDoc(userRef);
+    const isSA = SUPER_ADMINS.includes(user.email!);
 
     if (userSnap.exists()) {
       const data = userSnap.data() as AppUser;
+
+      // Super admins always get access - fix their doc if needed
+      if (isSA && (!data.active || data.role !== 'admin')) {
+        const fixed = {
+          ...data,
+          role: 'admin' as const,
+          active: true,
+          permissions: { ...defaultPerms.admin },
+          updatedAt: new Date().toISOString(),
+        };
+        await setDoc(userRef, fixed, { merge: true });
+        return { ...fixed, id: user.uid };
+      }
+
       if (!data.active) {
-        setError('Tu cuenta ha sido desactivada. Contacta al administrador.');
+        setError('Tu cuenta esta pendiente de activacion. Contacta al administrador.');
         await signOut(auth);
         return null;
       }
-      return data;
+      return { ...data, id: user.uid };
     }
 
-    // Auto-create user doc for super admins
-    const isSA = SUPER_ADMINS.includes(user.email!);
+    // New user - create document
     const role = isSA ? 'admin' as const : 'usuario' as const;
 
     const newUser: AppUser = {
