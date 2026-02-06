@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: check if user is authenticated
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // Helper: check if user email is from HCA domain
+    function isHCA() {
+      return isAuth() && request.auth.token.email.matches('.*@hca[.]edu[.]uy$');
+    }
+
+    // Helper: get user document
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Helper: check if user is admin
+    function isAdmin() {
+      return isHCA() && getUserData().role == 'admin';
+    }
+
+    // Helper: check if user is active
+    function isActive() {
+      return isHCA() && getUserData().active == true;
+    }
+
+    // Helper: check if user is admin or gestor
+    function isManager() {
+      return isHCA() && getUserData().role in ['admin', 'gestor'];
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // Users can read their own document, admins can read all
+      allow read: if isAuth() && (request.auth.uid == userId || isAdmin());
+      // Users can create their own document on first login
+      allow create: if isAuth() && request.auth.uid == userId;
+      // Only admins can update user documents
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Sectors collection
+    match /sectors/{sectorId} {
+      allow read: if isActive();
+      allow create, update, delete: if isManager();
+    }
+
+    // Categories collection
+    match /categories/{categoryId} {
+      allow read: if isActive();
+      allow create, update, delete: if isManager();
+    }
+
+    // Products collection
+    match /products/{productId} {
+      allow read: if isActive();
+      allow create, update, delete: if isManager();
+    }
+
+    // Stock movements collection
+    match /stockMovements/{movementId} {
+      allow read: if isActive();
+      allow create: if isManager();
+      allow update, delete: if isAdmin();
+    }
+
+    // Orders collection
+    match /orders/{orderId} {
+      allow read: if isActive();
+      // Any active user can create orders
+      allow create: if isActive();
+      // Managers can update orders (approve, reject, deliver)
+      allow update: if isManager();
+      allow delete: if isAdmin();
+    }
+
+    // Role configurations
+    match /roleConfigs/{roleId} {
+      allow read: if isActive();
+      allow write: if isAdmin();
+    }
+  }
+}
