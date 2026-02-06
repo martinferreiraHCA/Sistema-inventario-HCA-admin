@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'gestor' | 'usuario';
+export type UserRole = 'admin' | 'gestor' | 'relevador' | 'usuario';
 
 export interface ModulePermissions {
   dashboard: boolean;
@@ -6,6 +6,7 @@ export interface ModulePermissions {
   categories: boolean;
   products: boolean;
   stock: boolean;
+  relevamiento: boolean;
   costs: boolean;
   orders: boolean;
   users: boolean;
@@ -20,6 +21,7 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, ModulePermissions> = {
     categories: true,
     products: true,
     stock: true,
+    relevamiento: true,
     costs: true,
     orders: true,
     users: true,
@@ -32,11 +34,25 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, ModulePermissions> = {
     categories: true,
     products: true,
     stock: true,
+    relevamiento: true,
     costs: true,
     orders: true,
     users: false,
     roles: false,
     reports: true,
+  },
+  relevador: {
+    dashboard: true,
+    sectors: false,
+    categories: false,
+    products: false,
+    stock: false,
+    relevamiento: true,
+    costs: false,
+    orders: false,
+    users: false,
+    roles: false,
+    reports: false,
   },
   usuario: {
     dashboard: true,
@@ -44,6 +60,7 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, ModulePermissions> = {
     categories: false,
     products: false,
     stock: true,
+    relevamiento: false,
     costs: false,
     orders: true,
     users: false,
@@ -95,6 +112,8 @@ export interface Product {
   unit: string;
   cost: number;
   active: boolean;
+  lastModifiedBy?: string;
+  lastModifiedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

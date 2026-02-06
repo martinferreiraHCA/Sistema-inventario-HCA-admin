@@ -12,6 +12,7 @@ import {
   DollarSign,
   ShieldCheck,
   FileBarChart,
+  ClipboardCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ModulePermissions } from '../../types';
@@ -40,6 +41,12 @@ const menuItems: MenuItem[] = [
       { label: 'Productos', path: '/products', permissionKey: 'products' },
       { label: 'Movimientos de Stock', path: '/stock', permissionKey: 'stock' },
     ],
+  },
+  {
+    label: 'Relevamiento',
+    icon: <ClipboardCheck size={20} />,
+    path: '/relevamiento',
+    permissionKey: 'relevamiento',
   },
   {
     label: 'Costos',
@@ -198,6 +205,8 @@ export default function Sidebar() {
                     ? 'Administrador'
                     : appUser?.role === 'gestor'
                     ? 'Gestor'
+                    : appUser?.role === 'relevador'
+                    ? 'Relevador'
                     : 'Usuario'}
                 </span>
               </div>

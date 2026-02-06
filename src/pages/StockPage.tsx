@@ -88,7 +88,11 @@ export default function StockPage() {
         userEmail: appUser?.email || '',
       });
 
-      await updateDocument('products', form.productId, { stock: newStock });
+      await updateDocument('products', form.productId, {
+        stock: newStock,
+        lastModifiedBy: appUser?.email || '',
+        lastModifiedAt: new Date().toISOString(),
+      });
 
       setShowModal(false);
       setForm({ productId: '', type: 'in', quantity: 0, reason: '' });

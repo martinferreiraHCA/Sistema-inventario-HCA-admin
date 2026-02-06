@@ -78,6 +78,8 @@ export default function UsersPage() {
         return <span className="badge badge-red">Administrador</span>;
       case 'gestor':
         return <span className="badge badge-blue">Gestor</span>;
+      case 'relevador':
+        return <span className="badge badge-orange">Relevador</span>;
       default:
         return <span className="badge badge-gray">Usuario</span>;
     }
@@ -190,6 +192,7 @@ export default function UsersPage() {
                   >
                     <option value="admin">Administrador</option>
                     <option value="gestor">Gestor</option>
+                    <option value="relevador">Relevador</option>
                     <option value="usuario">Usuario</option>
                   </select>
                 </div>

@@ -12,6 +12,7 @@ import OrdersPage from './pages/OrdersPage';
 import UsersPage from './pages/UsersPage';
 import RolesPage from './pages/RolesPage';
 import ReportsPage from './pages/ReportsPage';
+import RelevamientoPage from './pages/RelevamientoPage';
 import type { ModulePermissions } from './types';
 
 function ProtectedRoute({
@@ -108,6 +109,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute permissionKey="stock">
               <StockPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/relevamiento"
+          element={
+            <ProtectedRoute permissionKey="relevamiento">
+              <RelevamientoPage />
             </ProtectedRoute>
           }
         />

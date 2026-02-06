@@ -12,6 +12,7 @@ const MODULE_LABELS: Record<keyof ModulePermissions, string> = {
   categories: 'Categorias',
   products: 'Productos',
   stock: 'Movimientos de Stock',
+  relevamiento: 'Relevamiento de Stock',
   costs: 'Costos',
   orders: 'Pedidos',
   users: 'Gestion de Usuarios',
@@ -21,6 +22,7 @@ const MODULE_LABELS: Record<keyof ModulePermissions, string> = {
 
 const ROLES: { key: UserRole; label: string }[] = [
   { key: 'gestor', label: 'Gestor' },
+  { key: 'relevador', label: 'Relevador' },
   { key: 'usuario', label: 'Usuario' },
 ];
 
@@ -28,6 +30,7 @@ export default function RolesPage() {
   const { data: users } = useCollection<AppUser>('users');
   const [roleConfigs, setRoleConfigs] = useState<Record<string, ModulePermissions>>({
     gestor: { ...DEFAULT_PERMISSIONS.gestor },
+    relevador: { ...DEFAULT_PERMISSIONS.relevador },
     usuario: { ...DEFAULT_PERMISSIONS.usuario },
   });
   const [saving, setSaving] = useState(false);
@@ -122,7 +125,7 @@ export default function RolesPage() {
                 {ROLES.map((role) => (
                   <th key={role.key} style={{ textAlign: 'center' }}>
                     <span
-                      className={`badge ${role.key === 'gestor' ? 'badge-blue' : 'badge-gray'}`}
+                      className={`badge ${role.key === 'gestor' ? 'badge-blue' : role.key === 'relevador' ? 'badge-orange' : 'badge-gray'}`}
                       style={{ display: 'inline-block' }}
                     >
                       {role.label}

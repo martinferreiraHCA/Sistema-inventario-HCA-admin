@@ -32,6 +32,11 @@ service cloud.firestore {
       return isHCA() && getUserData().role in ['admin', 'gestor'];
     }
 
+    // Helper: check if user can manage stock (admin, gestor, or relevador)
+    function isStockManager() {
+      return isHCA() && getUserData().role in ['admin', 'gestor', 'relevador'];
+    }
+
     // Users collection
     match /users/{userId} {
       // Any HCA user can read users (needed for admin to list all users)
@@ -58,13 +63,14 @@ service cloud.firestore {
     // Products collection
     match /products/{productId} {
       allow read: if isActive();
-      allow create, update, delete: if isManager();
+      allow create, delete: if isManager();
+      allow update: if isStockManager();
     }
 
     // Stock movements collection
     match /stockMovements/{movementId} {
       allow read: if isActive();
-      allow create: if isManager();
+      allow create: if isStockManager();
       allow update, delete: if isAdmin();
     }
 
