@@ -90,8 +90,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
-      setError(null);
       if (user) {
+        setError(null);
         try {
           const appUserData = await fetchOrCreateUser(user);
           setFirebaseUser(user);
