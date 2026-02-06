@@ -372,9 +372,10 @@ tr:hover td {
 .toggle-slider {
   position: absolute;
   inset: 0;
-  background: var(--color-border);
+  background: #C4C8D0;
   border-radius: 12px;
   transition: background 0.2s;
+  border: 1px solid #B0B5BE;
 }
 
 .toggle-slider::before {
@@ -384,13 +385,15 @@ tr:hover td {
   height: 18px;
   border-radius: 50%;
   background: white;
-  top: 3px;
-  left: 3px;
+  top: 2px;
+  left: 2px;
   transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .toggle input:checked + .toggle-slider {
   background: var(--color-green-dark);
+  border-color: var(--color-green-dark);
 }
 
 .toggle input:checked + .toggle-slider::before {
