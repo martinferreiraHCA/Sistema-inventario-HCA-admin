@@ -159,7 +159,7 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/Sistema-inventario-HCA-admin">
       <AuthProvider>
         <AppRoutes />
       </AuthProvider>
