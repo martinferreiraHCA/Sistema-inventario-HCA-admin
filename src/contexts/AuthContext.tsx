@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (userSnap.exists()) {
       const data = userSnap.data() as AppUser;
 
-      // Super admins always get access - fix their doc if needed
+      // Super admins always get admin access
       if (isSA && (!data.active || data.role !== 'admin')) {
         const fixed = {
           ...data,
@@ -66,15 +66,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ...fixed, id: user.uid };
       }
 
+      // Auto-activate users that were created with old bug (active=false)
       if (!data.active) {
-        setError('Tu cuenta esta pendiente de activacion. Contacta al administrador.');
-        await signOut(auth);
-        return null;
+        await setDoc(userRef, { active: true, updatedAt: new Date().toISOString() }, { merge: true });
+        return { ...data, active: true, id: user.uid };
       }
+
       return { ...data, id: user.uid };
     }
 
-    // New user - create document
+    // New user - all @hca.edu.uy users are auto-activated
     const role = isSA ? 'admin' as const : 'usuario' as const;
 
     const newUser: AppUser = {
@@ -85,19 +86,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role,
       assignedSectors: [],
       permissions: { ...defaultPerms[role] },
-      active: isSA, // Only super admins are auto-activated
+      active: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     await setDoc(userRef, newUser);
-
-    if (!isSA) {
-      setError('Tu cuenta ha sido creada pero está pendiente de activación. Contacta al administrador.');
-      await signOut(auth);
-      return null;
-    }
-
     return newUser;
   }
 
