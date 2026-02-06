@@ -34,8 +34,8 @@ service cloud.firestore {
 
     // Users collection
     match /users/{userId} {
-      // Users can read their own document, admins can read all
-      allow read: if isAuth() && (request.auth.uid == userId || isAdmin());
+      // Any HCA user can read users (needed for admin to list all users)
+      allow read: if isHCA();
       // Users can create their own document on first login
       allow create: if isAuth() && request.auth.uid == userId;
       // Only admins can update user documents
