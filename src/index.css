@@ -360,22 +360,28 @@ tr:hover td {
 /* Toggle Switch */
 .toggle {
   position: relative;
-  width: 44px;
-  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  width: 48px;
+  height: 26px;
   cursor: pointer;
+  vertical-align: middle;
 }
 
 .toggle input {
-  display: none;
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
 }
 
 .toggle-slider {
   position: absolute;
   inset: 0;
-  background: #C4C8D0;
-  border-radius: 12px;
-  transition: background 0.2s;
-  border: 1px solid #B0B5BE;
+  background: #D1D5DB;
+  border-radius: 13px;
+  transition: all 0.25s ease;
+  border: 2px solid #B0B5BE;
 }
 
 .toggle-slider::before {
@@ -387,8 +393,8 @@ tr:hover td {
   background: white;
   top: 2px;
   left: 2px;
-  transition: transform 0.2s;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.25s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
 .toggle input:checked + .toggle-slider {
@@ -397,7 +403,20 @@ tr:hover td {
 }
 
 .toggle input:checked + .toggle-slider::before {
-  transform: translateX(20px);
+  transform: translateX(22px);
+}
+
+.toggle:hover .toggle-slider {
+  border-color: #9CA3AF;
+}
+
+.toggle input:checked + .toggle-slider:hover {
+  border-color: #094a42;
+}
+
+.toggle input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Stats Card */
