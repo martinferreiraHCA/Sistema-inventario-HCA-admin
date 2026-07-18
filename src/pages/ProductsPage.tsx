@@ -1,9 +1,17 @@
 import { useState, useMemo } from 'react';
-import { Plus, Pencil, Trash2, Package, Search } from 'lucide-react';
-import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
+import { Plus, Pencil, Trash2, Package, Search, AlertTriangle } from 'lucide-react';
+import { useCollection, addDocument, updateDocument, deleteDocument, registerStockMovement } from '../hooks/useFirestore';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { useConfirm } from '../contexts/ConfirmContext';
+import Modal from '../components/Modal';
+import { formatCurrency } from '../utils/format';
 import type { Product, Sector, Category } from '../types';
 
 export default function ProductsPage() {
+  const { appUser } = useAuth();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const { data: products, loading } = useCollection<Product>('products');
   const { data: sectors } = useCollection<Sector>('sectors');
   const { data: categories } = useCollection<Category>('categories');
@@ -13,6 +21,7 @@ export default function ProductsPage() {
   const [filterSector, setFilterSector] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [onlyLowStock, setOnlyLowStock] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -27,6 +36,8 @@ export default function ProductsPage() {
 
   const activeSectors = sectors.filter((s) => s.active);
   const activeCategories = categories.filter((c) => c.active);
+  const sectorNameById = useMemo(() => new Map(sectors.map((s) => [s.id, s.name])), [sectors]);
+  const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
 
   const filteredCategories = form.sectorId
     ? activeCategories.filter((c) => c.sectorId === form.sectorId)
@@ -36,6 +47,7 @@ export default function ProductsPage() {
     let result = products;
     if (filterSector) result = result.filter((p) => p.sectorId === filterSector);
     if (filterCategory) result = result.filter((p) => p.categoryId === filterCategory);
+    if (onlyLowStock) result = result.filter((p) => p.stock <= p.minStock && p.active);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -44,7 +56,7 @@ export default function ProductsPage() {
       );
     }
     return result;
-  }, [products, filterSector, filterCategory, searchQuery]);
+  }, [products, filterSector, filterCategory, searchQuery, onlyLowStock]);
 
   function openCreate() {
     setEditing(null);
@@ -79,39 +91,90 @@ export default function ProductsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim() || !form.sectorId) return;
+
+    const name = form.name.trim();
+    const duplicate = products.some(
+      (p) =>
+        p.id !== editing?.id &&
+        p.sectorId === form.sectorId &&
+        p.name.trim().toLowerCase() === name.toLowerCase()
+    );
+    if (duplicate) {
+      showToast(`Ya existe un producto llamado "${name}" en este sector`, 'error');
+      return;
+    }
+
+    const stock = Number(form.stock);
+    const minStock = Number(form.minStock);
+    const cost = Number(form.cost);
+    if ([stock, minStock, cost].some((n) => !Number.isFinite(n) || n < 0)) {
+      showToast('Stock, stock minimo y costo deben ser numeros mayores o iguales a 0', 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       const data = {
-        name: form.name.trim(),
+        name,
         description: form.description.trim(),
         sectorId: form.sectorId,
         categoryId: form.categoryId,
-        stock: Number(form.stock),
-        minStock: Number(form.minStock),
+        minStock,
         unit: form.unit,
-        cost: Number(form.cost),
+        cost,
       };
 
       if (editing) {
         await updateDocument('products', editing.id, data);
+        // Si cambio el stock, registrarlo como ajuste para no perder el historial
+        if (stock !== editing.stock) {
+          await registerStockMovement({
+            productId: editing.id,
+            type: 'adjustment',
+            quantity: stock,
+            reason: 'Ajuste desde edicion de producto',
+            userId: appUser?.uid || '',
+            userEmail: appUser?.email || '',
+          });
+        }
+        showToast('Producto actualizado');
       } else {
-        await addDocument('products', { ...data, active: true });
+        await addDocument('products', { ...data, stock, active: true });
+        showToast('Producto creado');
       }
       setShowModal(false);
     } catch (err) {
       console.error(err);
+      showToast('No se pudo guardar el producto', 'error');
     } finally {
       setSaving(false);
     }
   }
 
   async function handleToggleActive(product: Product) {
-    await updateDocument('products', product.id, { active: !product.active });
+    try {
+      await updateDocument('products', product.id, { active: !product.active });
+    } catch (err) {
+      console.error(err);
+      showToast('No se pudo cambiar el estado del producto', 'error');
+    }
   }
 
   async function handleDelete(product: Product) {
-    if (!confirm(`Eliminar producto "${product.name}"?`)) return;
-    await deleteDocument('products', product.id);
+    const ok = await confirm({
+      title: 'Eliminar producto',
+      message: `Se eliminara "${product.name}" de forma permanente. El historial de movimientos se conserva, pero el producto no podra recuperarse.\n\nSi solo quieres dejar de usarlo, desactivalo con el interruptor de estado.`,
+      confirmLabel: 'Eliminar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteDocument('products', product.id);
+      showToast('Producto eliminado');
+    } catch (err) {
+      console.error(err);
+      showToast('No se pudo eliminar el producto', 'error');
+    }
   }
 
   return (
@@ -172,6 +235,24 @@ export default function ProductsPage() {
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: '0.875rem',
+            cursor: 'pointer',
+            padding: '0 4px',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={onlyLowStock}
+            onChange={(e) => setOnlyLowStock(e.target.checked)}
+          />
+          <AlertTriangle size={15} color="var(--color-warning)" />
+          Solo stock bajo
+        </label>
       </div>
 
       <div className="card">
@@ -214,17 +295,17 @@ export default function ProductsPage() {
                       </td>
                       <td>
                         <span className="badge badge-blue">
-                          {sectors.find((s) => s.id === product.sectorId)?.name || '-'}
+                          {sectorNameById.get(product.sectorId) || '-'}
                         </span>
                       </td>
-                      <td>{categories.find((c) => c.id === product.categoryId)?.name || '-'}</td>
+                      <td>{categoryNameById.get(product.categoryId) || '-'}</td>
                       <td>
                         <span className={`badge ${isLow ? 'badge-red' : 'badge-green'}`}>
                           {product.stock} {product.unit}
                         </span>
                       </td>
                       <td>{product.minStock} {product.unit}</td>
-                      <td>${product.cost.toFixed(2)}</td>
+                      <td>{formatCurrency(product.cost)}</td>
                       <td>
                         <label className="toggle">
                           <input
@@ -260,15 +341,12 @@ export default function ProductsPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
-            <div className="modal-header">
-              <h2>{editing ? 'Editar Producto' : 'Nuevo Producto'}</h2>
-              <button className="btn-icon" onClick={() => setShowModal(false)}>
-                &times;
-              </button>
-            </div>
-            <form onSubmit={handleSubmit}>
+        <Modal
+          title={editing ? 'Editar Producto' : 'Nuevo Producto'}
+          onClose={() => setShowModal(false)}
+          maxWidth={640}
+        >
+          <form onSubmit={handleSubmit}>
               <div className="modal-body">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                   <div className="form-group">
@@ -328,6 +406,11 @@ export default function ProductsPage() {
                       value={form.stock}
                       onChange={(e) => setForm({ ...form, stock: Number(e.target.value) })}
                     />
+                    {editing && form.stock !== editing.stock && (
+                      <p style={{ fontSize: '0.75rem', color: 'var(--color-warning)', marginTop: 4 }}>
+                        Se registrara como ajuste en el historial
+                      </p>
+                    )}
                   </div>
                   <div className="form-group">
                     <label className="form-label">Stock Min.</label>
@@ -377,8 +460,7 @@ export default function ProductsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

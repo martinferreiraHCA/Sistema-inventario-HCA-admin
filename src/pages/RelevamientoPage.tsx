@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react';
 import { ChevronLeft, Check, Package, Layers, FolderOpen, Save } from 'lucide-react';
-import { useCollection, addDocument, updateDocument } from '../hooks/useFirestore';
+import { useCollection, registerStockMovement } from '../hooks/useFirestore';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import type { Product, Sector, Category, StockMovement } from '../types';
 
 type Step = 'sectors' | 'categories' | 'products';
@@ -14,6 +16,8 @@ interface StockUpdate {
 
 export default function RelevamientoPage() {
   const { appUser } = useAuth();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const { data: products } = useCollection<Product>('products');
   const { data: sectors } = useCollection<Sector>('sectors');
   const { data: categories } = useCollection<Category>('categories');
@@ -73,12 +77,27 @@ export default function RelevamientoPage() {
   }
 
   function adjustStock(productId: string, delta: number) {
-    const current = stockUpdates[productId]?.newStock ?? 0;
+    const current =
+      stockUpdates[productId]?.newStock ??
+      products.find((p) => p.id === productId)?.stock ??
+      0;
     updateStock(productId, current + delta);
   }
 
-  function goBack() {
+  async function confirmDiscardChanges(): Promise<boolean> {
+    if (pendingChanges === 0) return true;
+    return confirm({
+      title: 'Cambios sin guardar',
+      message: `Tienes ${pendingChanges} cambio${pendingChanges > 1 ? 's' : ''} sin guardar que se perderan si sales.`,
+      confirmLabel: 'Descartar cambios',
+      cancelLabel: 'Seguir contando',
+      danger: true,
+    });
+  }
+
+  async function goBack() {
     if (step === 'products') {
+      if (!(await confirmDiscardChanges())) return;
       setStep('categories');
       setSelectedCategory(null);
       setStockUpdates({});
@@ -88,63 +107,68 @@ export default function RelevamientoPage() {
     }
   }
 
+  async function goToStep(target: 'sectors' | 'categories') {
+    if (step === 'products' && !(await confirmDiscardChanges())) return;
+    if (target === 'sectors') {
+      setStep('sectors');
+      setSelectedSector(null);
+      setSelectedCategory(null);
+    } else {
+      setStep('categories');
+      setSelectedCategory(null);
+    }
+    setStockUpdates({});
+  }
+
   async function saveChanges() {
     const changed = Object.values(stockUpdates).filter((u) => u.changed);
     if (changed.length === 0) return;
 
     setSaving(true);
+    const savedIds: string[] = [];
     try {
       for (const update of changed) {
-        const product = products.find((p) => p.id === update.productId);
-        if (!product) continue;
-
-        // Create stock movement record
-        await addDocument('stockMovements', {
-          productId: product.id,
-          productName: product.name,
-          sectorId: product.sectorId,
+        await registerStockMovement({
+          productId: update.productId,
           type: 'adjustment',
           quantity: update.newStock,
-          previousStock: product.stock,
-          newStock: update.newStock,
           reason: 'Relevamiento de stock',
           userId: appUser?.uid || '',
           userEmail: appUser?.email || '',
         });
-
-        // Update product stock with tracking
-        await updateDocument('products', product.id, {
-          stock: update.newStock,
-          lastModifiedBy: appUser?.email || '',
-          lastModifiedAt: new Date().toISOString(),
-        });
+        savedIds.push(update.productId);
       }
-
-      // Reset changed flags
-      setStockUpdates((prev) => {
-        const updated = { ...prev };
-        for (const key in updated) {
-          updated[key] = { ...updated[key], changed: false };
-        }
-        return updated;
-      });
 
       setSavedMessage(`${changed.length} producto${changed.length > 1 ? 's' : ''} actualizado${changed.length > 1 ? 's' : ''}`);
       setTimeout(() => setSavedMessage(''), 3000);
     } catch (err) {
       console.error(err);
+      showToast(
+        `Se guardaron ${savedIds.length} de ${changed.length} cambios. Reintenta los restantes.`,
+        'error'
+      );
     } finally {
+      // Reset changed flags only for products that were actually saved
+      setStockUpdates((prev) => {
+        const updated = { ...prev };
+        for (const id of savedIds) {
+          if (updated[id]) updated[id] = { ...updated[id], changed: false };
+        }
+        return updated;
+      });
       setSaving(false);
     }
   }
 
-  // Get last movement date for a product
-  function getLastUpdate(productId: string): string | null {
-    const productMovements = movements
-      .filter((m) => m.productId === productId)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return productMovements[0]?.createdAt || null;
-  }
+  // Fecha del ultimo movimiento por producto (las fechas ISO comparan bien como strings)
+  const lastMovementByProduct = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of movements) {
+      const prev = map.get(m.productId);
+      if (!prev || m.createdAt > prev) map.set(m.productId, m.createdAt);
+    }
+    return map;
+  }, [movements]);
 
   return (
     <div className="relevamiento-container">
@@ -197,13 +221,13 @@ export default function RelevamientoPage() {
       {/* Breadcrumb */}
       {step !== 'sectors' && (
         <div className="relevamiento-breadcrumb">
-          <span onClick={() => { setStep('sectors'); setSelectedSector(null); setSelectedCategory(null); }}>
+          <span onClick={() => goToStep('sectors')}>
             Sectores
           </span>
           {selectedSector && (
             <>
               <span className="relevamiento-breadcrumb-sep">/</span>
-              <span onClick={() => { setStep('categories'); setSelectedCategory(null); }}>
+              <span onClick={() => goToStep('categories')}>
                 {selectedSector.name}
               </span>
             </>
@@ -286,7 +310,7 @@ export default function RelevamientoPage() {
             const update = stockUpdates[product.id];
             const currentValue = update?.newStock ?? product.stock;
             const hasChanged = update?.changed || false;
-            const lastUpdate = getLastUpdate(product.id);
+            const lastUpdate = lastMovementByProduct.get(product.id) || null;
 
             return (
               <div

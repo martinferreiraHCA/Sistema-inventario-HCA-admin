@@ -1,11 +1,15 @@
 import { useState, useMemo } from 'react';
 import { Plus, Eye, Check, XCircle, Truck, ClipboardList } from 'lucide-react';
-import { useCollection, addDocument, updateDocument } from '../hooks/useFirestore';
+import { useCollection, addDocument, updateDocument, registerStockMovement } from '../hooks/useFirestore';
 import { useAuth } from '../contexts/AuthContext';
-import type { Order, OrderItem, Product, Sector } from '../types';
+import { useToast } from '../contexts/ToastContext';
+import Modal from '../components/Modal';
+import { formatDate, formatDateTime } from '../utils/format';
+import type { Order, OrderItem, OrderStatus, Product, Sector } from '../types';
 
 export default function OrdersPage() {
   const { appUser } = useAuth();
+  const { showToast } = useToast();
   const { data: orders, loading } = useCollection<Order>('orders');
   const { data: products } = useCollection<Product>('products');
   const { data: sectors } = useCollection<Sector>('sectors');
@@ -13,6 +17,8 @@ export default function OrdersPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [saving, setSaving] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [responseNotes, setResponseNotes] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
   const isManager = appUser?.role === 'admin' || appUser?.role === 'gestor';
@@ -88,33 +94,87 @@ export default function OrdersPage() {
       });
       setShowCreateModal(false);
       setForm({ sectorId: '', notes: '', items: [] });
+      showToast('Pedido enviado');
     } catch (err) {
       console.error(err);
+      showToast('No se pudo enviar el pedido', 'error');
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleUpdateStatus(orderId: string, status: string, responseNotes?: string) {
-    await updateDocument('orders', orderId, {
-      status,
-      responseNotes: responseNotes || '',
-    });
+  async function handleUpdateStatus(order: Order, status: OrderStatus) {
+    if (updatingStatus) return;
 
-    if (status === 'delivered') {
-      const order = orders.find((o) => o.id === orderId);
-      if (order) {
-        for (const item of order.items) {
-          const product = products.find((p) => p.id === item.productId);
-          if (product) {
-            const newStock = Math.max(0, product.stock - item.quantity);
-            await updateDocument('products', item.productId, { stock: newStock });
-          }
-        }
-      }
+    // Si otro gestor ya cambio el estado (la coleccion es en tiempo real),
+    // no repetir la accion: entregarlo dos veces descontaria stock doble.
+    const current = orders.find((o) => o.id === order.id);
+    if (!current || current.status !== order.status) {
+      showToast('El pedido fue modificado por otro usuario. Revisa su estado actual.', 'error');
+      setShowDetailModal(false);
+      return;
     }
 
-    setShowDetailModal(false);
+    setUpdatingStatus(true);
+    try {
+      // Al entregar, descontar stock registrando el movimiento de cada item
+      // para que el historial quede consistente con el stock real.
+      if (status === 'delivered') {
+        const missing: string[] = [];
+        for (const item of order.items) {
+          try {
+            await registerStockMovement({
+              productId: item.productId,
+              type: 'out',
+              quantity: item.quantity,
+              reason: `Pedido entregado a ${order.sectorName} (${order.userName})`,
+              userId: appUser?.uid || '',
+              userEmail: appUser?.email || '',
+            });
+          } catch (err) {
+            // Un producto eliminado no debe bloquear la entrega del resto
+            if (err instanceof Error && err.message === 'El producto ya no existe') {
+              missing.push(item.productName);
+              continue;
+            }
+            throw err;
+          }
+        }
+        if (missing.length > 0) {
+          showToast(`Sin descuento de stock (producto eliminado): ${missing.join(', ')}`, 'info');
+        }
+      }
+
+      await updateDocument('orders', order.id, {
+        status,
+        responseNotes: responseNotes.trim(),
+      });
+
+      const statusMessages: Record<OrderStatus, string> = {
+        pending: 'Pedido actualizado',
+        approved: 'Pedido aprobado',
+        rejected: 'Pedido rechazado',
+        delivered: 'Pedido entregado y stock descontado',
+      };
+      showToast(statusMessages[status]);
+      setShowDetailModal(false);
+    } catch (err) {
+      console.error(err);
+      showToast(
+        status === 'delivered'
+          ? 'Error al descontar stock. Revisa los movimientos antes de reintentar.'
+          : 'No se pudo actualizar el pedido',
+        'error'
+      );
+    } finally {
+      setUpdatingStatus(false);
+    }
+  }
+
+  function openDetail(order: Order) {
+    setSelectedOrder(order);
+    setResponseNotes(order.responseNotes || '');
+    setShowDetailModal(true);
   }
 
   function getStatusBadge(status: string) {
@@ -182,13 +242,7 @@ export default function OrdersPage() {
               <tbody>
                 {filteredOrders.map((order) => (
                   <tr key={order.id}>
-                    <td style={{ fontSize: '0.8rem' }}>
-                      {new Date(order.createdAt).toLocaleDateString('es-UY', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                      })}
-                    </td>
+                    <td style={{ fontSize: '0.8rem' }}>{formatDate(order.createdAt)}</td>
                     {isManager && <td style={{ fontSize: '0.85rem' }}>{order.userName}</td>}
                     <td>
                       <span className="badge badge-blue">{order.sectorName}</span>
@@ -199,13 +253,7 @@ export default function OrdersPage() {
                       {order.notes || '-'}
                     </td>
                     <td>
-                      <button
-                        className="btn-icon"
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setShowDetailModal(true);
-                        }}
-                      >
+                      <button className="btn-icon" onClick={() => openDetail(order)}>
                         <Eye size={16} />
                       </button>
                     </td>
@@ -219,15 +267,8 @@ export default function OrdersPage() {
 
       {/* Create Order Modal */}
       {showCreateModal && (
-        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
-            <div className="modal-header">
-              <h2>Nuevo Pedido</h2>
-              <button className="btn-icon" onClick={() => setShowCreateModal(false)}>
-                &times;
-              </button>
-            </div>
-            <form onSubmit={handleCreateOrder}>
+        <Modal title="Nuevo Pedido" onClose={() => setShowCreateModal(false)} maxWidth={640}>
+          <form onSubmit={handleCreateOrder}>
               <div className="modal-body">
                 <div className="form-group">
                   <label className="form-label">Sector</label>
@@ -335,20 +376,12 @@ export default function OrdersPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Order Detail Modal */}
       {showDetailModal && selectedOrder && (
-        <div className="modal-overlay" onClick={() => setShowDetailModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 600 }}>
-            <div className="modal-header">
-              <h2>Detalle del Pedido</h2>
-              <button className="btn-icon" onClick={() => setShowDetailModal(false)}>
-                &times;
-              </button>
-            </div>
+        <Modal title="Detalle del Pedido" onClose={() => setShowDetailModal(false)} maxWidth={600}>
             <div className="modal-body">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
                 <div>
@@ -364,15 +397,7 @@ export default function OrdersPage() {
                 </div>
                 <div>
                   <div className="form-label">Fecha</div>
-                  <p style={{ fontSize: '0.9rem' }}>
-                    {new Date(selectedOrder.createdAt).toLocaleDateString('es-UY', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
+                  <p style={{ fontSize: '0.9rem' }}>{formatDateTime(selectedOrder.createdAt)}</p>
                 </div>
                 <div>
                   <div className="form-label">Estado</div>
@@ -386,15 +411,31 @@ export default function OrdersPage() {
                   <tr>
                     <th>Producto</th>
                     <th>Cantidad</th>
+                    {isManager && selectedOrder.status !== 'delivered' && <th>Disponible</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedOrder.items.map((item) => (
-                    <tr key={item.productId}>
-                      <td>{item.productName}</td>
-                      <td>{item.quantity} {item.unit}</td>
-                    </tr>
-                  ))}
+                  {selectedOrder.items.map((item) => {
+                    const product = products.find((p) => p.id === item.productId);
+                    const insufficient = product ? product.stock < item.quantity : false;
+                    return (
+                      <tr key={item.productId}>
+                        <td>{item.productName}</td>
+                        <td>{item.quantity} {item.unit}</td>
+                        {isManager && selectedOrder.status !== 'delivered' && (
+                          <td>
+                            {product ? (
+                              <span className={`badge ${insufficient ? 'badge-red' : 'badge-green'}`}>
+                                {product.stock} {product.unit}
+                              </span>
+                            ) : (
+                              <span className="badge badge-gray">No existe</span>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
 
@@ -407,7 +448,7 @@ export default function OrdersPage() {
                 </div>
               )}
 
-              {selectedOrder.responseNotes && (
+              {selectedOrder.responseNotes && !isManager && (
                 <div style={{ marginBottom: 16 }}>
                   <div className="form-label">Respuesta</div>
                   <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
@@ -415,21 +456,45 @@ export default function OrdersPage() {
                   </p>
                 </div>
               )}
+
+              {isManager && selectedOrder.status !== 'delivered' && selectedOrder.status !== 'rejected' ? (
+                <div className="form-group">
+                  <label className="form-label">Respuesta / Observaciones</label>
+                  <textarea
+                    className="form-textarea"
+                    value={responseNotes}
+                    onChange={(e) => setResponseNotes(e.target.value)}
+                    placeholder="Comentario para el solicitante (opcional)"
+                  />
+                </div>
+              ) : (
+                isManager &&
+                selectedOrder.responseNotes && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div className="form-label">Respuesta</div>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
+                      {selectedOrder.responseNotes}
+                    </p>
+                  </div>
+                )
+              )}
             </div>
 
             {isManager && selectedOrder.status === 'pending' && (
               <div className="modal-footer">
                 <button
                   className="btn btn-danger"
-                  onClick={() => handleUpdateStatus(selectedOrder.id, 'rejected')}
+                  disabled={updatingStatus}
+                  onClick={() => handleUpdateStatus(selectedOrder, 'rejected')}
                 >
-                  <XCircle size={16} /> Rechazar
+                  <XCircle size={16} /> {updatingStatus ? 'Guardando...' : 'Rechazar'}
                 </button>
                 <button
                   className="btn btn-success"
-                  onClick={() => handleUpdateStatus(selectedOrder.id, 'approved')}
+                  disabled={updatingStatus}
+                  onClick={() => handleUpdateStatus(selectedOrder, 'approved')}
                 >
-                  <Check size={16} /> Aprobar
+                  <Check size={16} /> {updatingStatus ? 'Guardando...' : 'Aprobar'}
                 </button>
               </div>
             )}
@@ -438,14 +503,14 @@ export default function OrdersPage() {
               <div className="modal-footer">
                 <button
                   className="btn btn-primary"
-                  onClick={() => handleUpdateStatus(selectedOrder.id, 'delivered')}
+                  disabled={updatingStatus}
+                  onClick={() => handleUpdateStatus(selectedOrder, 'delivered')}
                 >
-                  <Truck size={16} /> Marcar como Entregado
+                  <Truck size={16} /> {updatingStatus ? 'Entregando...' : 'Marcar como Entregado'}
                 </button>
               </div>
             )}
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -3,8 +3,9 @@ import { Shield, Save } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useCollection, updateDocument } from '../hooks/useFirestore';
+import { useToast } from '../contexts/ToastContext';
 import type { ModulePermissions, UserRole, AppUser } from '../types';
-import { DEFAULT_PERMISSIONS } from '../types';
+import { DEFAULT_PERMISSIONS, ROLE_LABELS } from '../types';
 
 const MODULE_LABELS: Record<keyof ModulePermissions, string> = {
   dashboard: 'Dashboard',
@@ -20,13 +21,12 @@ const MODULE_LABELS: Record<keyof ModulePermissions, string> = {
   reports: 'Reportes',
 };
 
-const ROLES: { key: UserRole; label: string }[] = [
-  { key: 'gestor', label: 'Gestor' },
-  { key: 'relevador', label: 'Relevador' },
-  { key: 'usuario', label: 'Usuario' },
-];
+const ROLES: { key: UserRole; label: string }[] = (['gestor', 'relevador', 'usuario'] as UserRole[]).map(
+  (key) => ({ key, label: ROLE_LABELS[key] })
+);
 
 export default function RolesPage() {
+  const { showToast } = useToast();
   const { data: users } = useCollection<AppUser>('users');
   const [roleConfigs, setRoleConfigs] = useState<Record<string, ModulePermissions>>({
     gestor: { ...DEFAULT_PERMISSIONS.gestor },
@@ -87,6 +87,7 @@ export default function RolesPage() {
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       console.error(err);
+      showToast('No se pudo guardar la configuracion de roles', 'error');
     } finally {
       setSaving(false);
     }
