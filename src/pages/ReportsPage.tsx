@@ -43,20 +43,22 @@ export default function ReportsPage() {
     return Object.entries(map).map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }));
   }, [products, sectors]);
 
-  // Movement trends (last 30 days)
+  // Movement trends (last 30 days), agrupados por fecha local (no UTC)
   const movementTrend = useMemo(() => {
+    const localKey = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
     const now = new Date();
     const days: Record<string, { date: string; entradas: number; salidas: number }> = {};
 
     for (let i = 29; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().split('T')[0];
-      days[key] = { date: `${d.getDate()}/${d.getMonth() + 1}`, entradas: 0, salidas: 0 };
+      days[localKey(d)] = { date: `${d.getDate()}/${d.getMonth() + 1}`, entradas: 0, salidas: 0 };
     }
 
     movements.forEach((m) => {
-      const key = m.createdAt.split('T')[0];
+      const key = localKey(new Date(m.createdAt));
       if (days[key]) {
         if (m.type === 'in') days[key].entradas += m.quantity;
         else if (m.type === 'out') days[key].salidas += m.quantity;
@@ -93,20 +95,27 @@ export default function ReportsPage() {
       }));
   }, [filteredProducts]);
 
+  function csvCell(value: string | number): string {
+    const text = String(value);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
   function exportCSV() {
-    const headers = ['Producto', 'Sector', 'Categoria', 'Stock', 'Unidad', 'Costo', 'Valor Total'];
+    const headers = ['Producto', 'Sector', 'Categoria', 'Stock', 'Stock Minimo', 'Unidad', 'Costo', 'Valor Total'];
     const rows = filteredProducts.map((p) => [
       p.name,
       sectors.find((s) => s.id === p.sectorId)?.name || '',
       categories.find((c) => c.id === p.categoryId)?.name || '',
       p.stock,
+      p.minStock,
       p.unit,
       p.cost,
       (p.stock * p.cost).toFixed(2),
     ]);
 
-    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const csv = [headers, ...rows].map((r) => r.map(csvCell).join(',')).join('\n');
+    // BOM para que Excel abra el archivo con acentos correctos
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

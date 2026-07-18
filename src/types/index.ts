@@ -1,5 +1,12 @@
 export type UserRole = 'admin' | 'gestor' | 'relevador' | 'usuario';
 
+export const ROLE_LABELS: Record<UserRole, string> = {
+  admin: 'Administrador',
+  gestor: 'Gestor',
+  relevador: 'Relevador',
+  usuario: 'Usuario',
+};
+
 export interface ModulePermissions {
   dashboard: boolean;
   sectors: boolean;

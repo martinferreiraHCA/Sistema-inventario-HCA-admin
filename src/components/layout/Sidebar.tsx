@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ModulePermissions } from '../../types';
+import { ROLE_LABELS } from '../../types';
 
 interface MenuItem {
   label: string;
@@ -201,13 +202,7 @@ export default function Sidebar() {
               <div className="sidebar-user-info">
                 <span className="sidebar-user-name">{appUser?.displayName}</span>
                 <span className="sidebar-user-role">
-                  {appUser?.role === 'admin'
-                    ? 'Administrador'
-                    : appUser?.role === 'gestor'
-                    ? 'Gestor'
-                    : appUser?.role === 'relevador'
-                    ? 'Relevador'
-                    : 'Usuario'}
+                  {appUser ? ROLE_LABELS[appUser.role] : ''}
                 </span>
               </div>
             )}

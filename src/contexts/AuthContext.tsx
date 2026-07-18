@@ -9,7 +9,9 @@ import {
   doc,
   getDoc,
   setDoc,
+  onSnapshot,
 } from 'firebase/firestore';
+import { FirebaseError } from 'firebase/app';
 import { auth, googleProvider, db } from '../config/firebase';
 import type { AppUser } from '../types';
 import { DEFAULT_PERMISSIONS as defaultPerms } from '../types';
@@ -66,10 +68,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ...fixed, id: user.uid };
       }
 
-      // Auto-activate users that were created with old bug (active=false)
+      // Enforce deactivation: si un admin desactivo la cuenta, no puede entrar
       if (!data.active) {
-        await setDoc(userRef, { active: true, updatedAt: new Date().toISOString() }, { merge: true });
-        return { ...data, active: true, id: user.uid };
+        setError('Tu cuenta esta desactivada. Contacta a un administrador.');
+        await signOut(auth);
+        return null;
       }
 
       return { ...data, id: user.uid };
@@ -96,15 +99,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    let unsubUserDoc: (() => void) | null = null;
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
+      unsubUserDoc?.();
+      unsubUserDoc = null;
+
       if (user) {
         setError(null);
         try {
           const appUserData = await fetchOrCreateUser(user);
           setFirebaseUser(user);
           setAppUser(appUserData);
-        } catch (err: any) {
+
+          if (appUserData) {
+            // Suscripcion al documento del usuario: los cambios de rol,
+            // permisos o desactivacion aplican sin necesidad de re-login.
+            const userRef = doc(db, 'users', user.uid);
+            unsubUserDoc = onSnapshot(userRef, (snap) => {
+              if (!snap.exists()) return;
+              const data = snap.data() as AppUser;
+              if (!data.active && !SUPER_ADMINS.includes(data.email)) {
+                setError('Tu cuenta fue desactivada. Contacta a un administrador.');
+                signOut(auth);
+                return;
+              }
+              setAppUser({ ...data, id: snap.id });
+            });
+          }
+        } catch (err) {
           console.error('Error fetching user data:', err);
           setError('Error al cargar los datos del usuario.');
           setFirebaseUser(null);
@@ -116,16 +140,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setLoading(false);
     });
-    return unsub;
+
+    return () => {
+      unsubUserDoc?.();
+      unsub();
+    };
   }, []);
 
   async function signInWithGoogle() {
     setError(null);
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (err: any) {
-      if (err.code === 'auth/popup-closed-by-user') return;
-      if (err.code === 'auth/cancelled-popup-request') return;
+    } catch (err) {
+      const code = err instanceof FirebaseError ? err.code : '';
+      const message = err instanceof Error ? err.message : String(err);
+      if (code === 'auth/popup-closed-by-user') return;
+      if (code === 'auth/cancelled-popup-request') return;
 
       const errorMessages: Record<string, string> = {
         'auth/unauthorized-domain': 'Este dominio no esta autorizado en Firebase. Agrega este dominio en Authentication > Settings > Authorized domains.',
@@ -134,8 +164,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'auth/internal-error': 'Error interno de Firebase. Verifica la configuracion del proyecto.',
       };
 
-      setError(errorMessages[err.code] || `Error al iniciar sesion (${err.code || err.message})`);
-      console.error('Auth error:', err.code, err.message);
+      setError(errorMessages[code] || `Error al iniciar sesion (${code || message})`);
+      console.error('Auth error:', code, message);
     }
   }
 
@@ -162,6 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');

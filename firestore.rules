@@ -17,9 +17,14 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    // Helper: super admins always keep access, even if their document is broken
+    function isSuperAdmin() {
+      return isAuth() && request.auth.token.email in ['martinferreira@hca.edu.uy', 'stem@hca.edu.uy'];
+    }
+
     // Helper: check if user is admin
     function isAdmin() {
-      return isHCA() && getUserData().role == 'admin';
+      return isSuperAdmin() || (isHCA() && getUserData().role == 'admin');
     }
 
     // Helper: check if user is active
@@ -41,8 +46,14 @@ service cloud.firestore {
     match /users/{userId} {
       // Any HCA user can read users (needed for admin to list all users)
       allow read: if isHCA();
-      // Users can create their own document on first login
-      allow create: if isAuth() && request.auth.uid == userId;
+      // Users can create their own document on first login, but never with
+      // privileges: only super admins may self-assign a role other than 'usuario'
+      allow create: if isAuth() && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && (isSuperAdmin()
+            || (request.resource.data.role == 'usuario'
+                && request.resource.data.permissions.users == false
+                && request.resource.data.permissions.roles == false));
       // Only admins can update user documents
       allow update: if isAdmin();
       allow delete: if isAdmin();

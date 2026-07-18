@@ -1,11 +1,15 @@
 import { useState, useMemo } from 'react';
-import { Plus, ArrowUpCircle, ArrowDownCircle, RefreshCw } from 'lucide-react';
-import { useCollection, addDocument, updateDocument } from '../hooks/useFirestore';
+import { Plus, ArrowUpCircle, ArrowDownCircle, RefreshCw, Search } from 'lucide-react';
+import { useCollection, registerStockMovement } from '../hooks/useFirestore';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import Modal from '../components/Modal';
+import { formatDateTime } from '../utils/format';
 import type { Product, Sector, Category, StockMovement } from '../types';
 
 export default function StockPage() {
   const { appUser } = useAuth();
+  const { showToast } = useToast();
   const { data: movements, loading } = useCollection<StockMovement>('stockMovements');
   const { data: products } = useCollection<Product>('products');
   const { data: sectors } = useCollection<Sector>('sectors');
@@ -16,6 +20,7 @@ export default function StockPage() {
   // Filters for the history table
   const [filterSector, setFilterSector] = useState('');
   const [filterType, setFilterType] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Filters for the modal product selector
   const [modalSector, setModalSector] = useState('');
@@ -28,8 +33,12 @@ export default function StockPage() {
     reason: '',
   });
 
+  const PAGE_SIZE = 100;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
   const activeSectors = sectors.filter((s) => s.active);
   const activeCategories = categories.filter((c) => c.active);
+  const sectorNameById = useMemo(() => new Map(sectors.map((s) => [s.id, s.name])), [sectors]);
 
   // Products filtered by sector and category in the modal
   const modalProducts = useMemo(() => {
@@ -45,15 +54,19 @@ export default function StockPage() {
     return activeCategories.filter((c) => c.sectorId === modalSector);
   }, [activeCategories, modalSector]);
 
-  // Movements filtered by sector and type
+  // Movements filtered by sector, type and product name
   const filteredMovements = useMemo(() => {
     let result = [...movements].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     if (filterSector) result = result.filter((m) => m.sectorId === filterSector);
     if (filterType) result = result.filter((m) => m.type === filterType);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((m) => m.productName.toLowerCase().includes(q));
+    }
     return result;
-  }, [movements, filterSector, filterType]);
+  }, [movements, filterSector, filterType, searchQuery]);
 
   function openModal() {
     setModalSector('');
@@ -64,40 +77,43 @@ export default function StockPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.productId || form.quantity <= 0) return;
+    if (!form.productId) return;
+    const product = products.find((p) => p.id === form.productId);
+    if (!product) return;
+
+    const quantity = form.quantity;
+    if (!Number.isFinite(quantity) || quantity < 0 || (form.type !== 'adjustment' && quantity <= 0)) {
+      showToast('Ingresa una cantidad valida', 'error');
+      return;
+    }
+    if (form.type === 'out' && quantity > product.stock) {
+      showToast(
+        `Stock insuficiente (disponible: ${product.stock} ${product.unit}). Si el stock real difiere, registra un ajuste.`,
+        'error'
+      );
+      return;
+    }
+
     setSaving(true);
     try {
-      const product = products.find((p) => p.id === form.productId);
-      if (!product) return;
-
-      let newStock = product.stock;
-      if (form.type === 'in') newStock += form.quantity;
-      else if (form.type === 'out') newStock = Math.max(0, newStock - form.quantity);
-      else newStock = form.quantity;
-
-      await addDocument('stockMovements', {
+      const newStock = await registerStockMovement({
         productId: form.productId,
-        productName: product.name,
-        sectorId: product.sectorId,
         type: form.type,
-        quantity: form.quantity,
-        previousStock: product.stock,
-        newStock,
+        quantity,
         reason: form.reason.trim(),
         userId: appUser?.uid || '',
         userEmail: appUser?.email || '',
       });
 
-      await updateDocument('products', form.productId, {
-        stock: newStock,
-        lastModifiedBy: appUser?.email || '',
-        lastModifiedAt: new Date().toISOString(),
-      });
-
+      showToast(`Movimiento registrado. Stock actual: ${newStock} ${product.unit}`);
       setShowModal(false);
       setForm({ productId: '', type: 'in', quantity: 0, reason: '' });
     } catch (err) {
       console.error(err);
+      showToast(
+        err instanceof Error ? err.message : 'No se pudo registrar el movimiento',
+        'error'
+      );
     } finally {
       setSaving(false);
     }
@@ -133,6 +149,25 @@ export default function StockPage() {
 
       {/* History Filters */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
+          <Search
+            size={16}
+            style={{
+              position: 'absolute',
+              left: 12,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'var(--color-text-light)',
+            }}
+          />
+          <input
+            className="form-input"
+            style={{ paddingLeft: 36 }}
+            placeholder="Buscar por producto..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
         <select
           className="form-select"
           style={{ maxWidth: 220 }}
@@ -182,7 +217,7 @@ export default function StockPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredMovements.map((mov) => (
+                {filteredMovements.slice(0, visibleCount).map((mov) => (
                   <tr key={mov.id}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -195,40 +230,35 @@ export default function StockPage() {
                       </div>
                     </td>
                     <td style={{ fontWeight: 600 }}>{mov.productName}</td>
-                    <td>{sectors.find((s) => s.id === mov.sectorId)?.name || '-'}</td>
+                    <td>{sectorNameById.get(mov.sectorId) || '-'}</td>
                     <td>{mov.quantity}</td>
                     <td>{mov.previousStock}</td>
                     <td>{mov.newStock}</td>
                     <td>{mov.reason || '-'}</td>
                     <td style={{ fontSize: '0.8rem' }}>{mov.userEmail}</td>
-                    <td style={{ fontSize: '0.8rem' }}>
-                      {new Date(mov.createdAt).toLocaleDateString('es-UY', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </td>
+                    <td style={{ fontSize: '0.8rem' }}>{formatDateTime(mov.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {filteredMovements.length > visibleCount && (
+              <div style={{ textAlign: 'center', padding: '16px 0 4px' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                >
+                  Mostrar mas ({filteredMovements.length - visibleCount} restantes)
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Modal */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Nuevo Movimiento de Stock</h2>
-              <button className="btn-icon" onClick={() => setShowModal(false)}>
-                &times;
-              </button>
-            </div>
-            <form onSubmit={handleSubmit}>
+        <Modal title="Nuevo Movimiento de Stock" onClose={() => setShowModal(false)}>
+          <form onSubmit={handleSubmit}>
               <div className="modal-body">
                 {/* Step 1: Sector and Category filters */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -359,8 +389,7 @@ export default function StockPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
