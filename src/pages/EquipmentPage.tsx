@@ -8,8 +8,8 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import EquipmentFormModal from '../components/EquipmentFormModal';
 import EquipmentLabelsModal from '../components/EquipmentLabelsModal';
 import EquipmentStatusBadge from '../components/EquipmentStatusBadge';
-import type { Equipment, EquipmentStatus } from '../types';
-import { EQUIPMENT_STATUS_LABELS } from '../types';
+import type { Equipment, EquipmentCategory, EquipmentStatus } from '../types';
+import { EQUIPMENT_STATUS_LABELS, EQUIPMENT_CATEGORY_LABELS, equipmentCategoryOf } from '../types';
 
 export default function EquipmentPage() {
   const navigate = useNavigate();
@@ -23,19 +23,23 @@ export default function EquipmentPage() {
   const [showLabels, setShowLabels] = useState(false);
   const [labelSelection, setLabelSelection] = useState<string[] | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
   const isManager = appUser?.role === 'admin' || appUser?.role === 'gestor';
   const isAdmin = appUser?.role === 'admin';
 
-  const types = useMemo(
-    () => [...new Set(equipment.map((e) => e.type).filter(Boolean))].sort(),
-    [equipment]
-  );
+  const types = useMemo(() => {
+    const source = filterCategory
+      ? equipment.filter((e) => equipmentCategoryOf(e) === filterCategory)
+      : equipment;
+    return [...new Set(source.map((e) => e.type).filter(Boolean))].sort();
+  }, [equipment, filterCategory]);
 
   const filtered = useMemo(() => {
     let result = [...equipment].sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
+    if (filterCategory) result = result.filter((e) => equipmentCategoryOf(e) === filterCategory);
     if (filterType) result = result.filter((e) => e.type === filterType);
     if (filterStatus) result = result.filter((e) => e.status === filterStatus);
     if (searchQuery) {
@@ -46,7 +50,7 @@ export default function EquipmentPage() {
       );
     }
     return result;
-  }, [equipment, filterType, filterStatus, searchQuery]);
+  }, [equipment, filterCategory, filterType, filterStatus, searchQuery]);
 
   function openCreate() {
     setEditing(null);
@@ -124,6 +128,20 @@ export default function EquipmentPage() {
         <select
           className="form-select"
           style={{ maxWidth: 200 }}
+          value={filterCategory}
+          onChange={(e) => {
+            setFilterCategory(e.target.value);
+            setFilterType('');
+          }}
+        >
+          <option value="">Todas las categorias</option>
+          {(Object.keys(EQUIPMENT_CATEGORY_LABELS) as EquipmentCategory[]).map((c) => (
+            <option key={c} value={c}>{EQUIPMENT_CATEGORY_LABELS[c]}</option>
+          ))}
+        </select>
+        <select
+          className="form-select"
+          style={{ maxWidth: 200 }}
           value={filterType}
           onChange={(e) => setFilterType(e.target.value)}
         >
@@ -160,6 +178,7 @@ export default function EquipmentPage() {
                 <tr>
                   <th>Codigo</th>
                   <th>Nombre</th>
+                  <th>Categoria</th>
                   <th>Tipo</th>
                   <th>Marca / Modelo</th>
                   <th>Ubicacion</th>
@@ -183,6 +202,11 @@ export default function EquipmentPage() {
                           {eq.assignedTo}
                         </div>
                       )}
+                    </td>
+                    <td>
+                      <span className="badge badge-blue">
+                        {EQUIPMENT_CATEGORY_LABELS[equipmentCategoryOf(eq)]}
+                      </span>
                     </td>
                     <td>{eq.type || '-'}</td>
                     <td style={{ fontSize: '0.85rem' }}>
