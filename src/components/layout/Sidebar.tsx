@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   FileBarChart,
   ClipboardCheck,
+  QrCode,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ModulePermissions } from '../../types';
@@ -48,6 +49,12 @@ const menuItems: MenuItem[] = [
     icon: <ClipboardCheck size={20} />,
     path: '/relevamiento',
     permissionKey: 'relevamiento',
+  },
+  {
+    label: 'Equipos',
+    icon: <QrCode size={20} />,
+    path: '/equipos',
+    permissionKey: 'equipment',
   },
   {
     label: 'Costos',

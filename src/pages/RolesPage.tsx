@@ -16,6 +16,7 @@ const MODULE_LABELS: Record<keyof ModulePermissions, string> = {
   relevamiento: 'Relevamiento de Stock',
   costs: 'Costos',
   orders: 'Pedidos',
+  equipment: 'Equipos (QR)',
   users: 'Gestion de Usuarios',
   roles: 'Configuracion de Roles',
   reports: 'Reportes',
@@ -42,9 +43,12 @@ export default function RolesPage() {
         const ref = doc(db, 'roleConfigs', role.key);
         const snap = await getDoc(ref);
         if (snap.exists()) {
+          // Completar con los defaults del rol: los modulos agregados despues
+          // de guardar la configuracion no existen en el documento almacenado
+          const stored = snap.data().permissions as Partial<ModulePermissions>;
           setRoleConfigs((prev) => ({
             ...prev,
-            [role.key]: snap.data().permissions as ModulePermissions,
+            [role.key]: { ...DEFAULT_PERMISSIONS[role.key], ...stored },
           }));
         }
       }

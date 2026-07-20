@@ -125,7 +125,7 @@ export default function RelevamientoPage() {
     if (changed.length === 0) return;
 
     setSaving(true);
-    const savedIds: string[] = [];
+    const saved: StockUpdate[] = [];
     try {
       for (const update of changed) {
         await registerStockMovement({
@@ -136,7 +136,7 @@ export default function RelevamientoPage() {
           userId: appUser?.uid || '',
           userEmail: appUser?.email || '',
         });
-        savedIds.push(update.productId);
+        saved.push(update);
       }
 
       setSavedMessage(`${changed.length} producto${changed.length > 1 ? 's' : ''} actualizado${changed.length > 1 ? 's' : ''}`);
@@ -144,15 +144,19 @@ export default function RelevamientoPage() {
     } catch (err) {
       console.error(err);
       showToast(
-        `Se guardaron ${savedIds.length} de ${changed.length} cambios. Reintenta los restantes.`,
+        `Se guardaron ${saved.length} de ${changed.length} cambios. Reintenta los restantes.`,
         'error'
       );
     } finally {
-      // Reset changed flags only for products that were actually saved
+      // Limpiar el flag solo si el valor no fue editado mientras se guardaba:
+      // un conteo corregido durante el guardado debe seguir pendiente.
       setStockUpdates((prev) => {
         const updated = { ...prev };
-        for (const id of savedIds) {
-          if (updated[id]) updated[id] = { ...updated[id], changed: false };
+        for (const u of saved) {
+          const cur = updated[u.productId];
+          if (cur && cur.newStock === u.newStock) {
+            updated[u.productId] = { ...cur, changed: false };
+          }
         }
         return updated;
       });

@@ -93,12 +93,19 @@ export default function ProductsPage() {
     if (!form.name.trim() || !form.sectorId) return;
 
     const name = form.name.trim();
-    const duplicate = products.some(
-      (p) =>
-        p.id !== editing?.id &&
-        p.sectorId === form.sectorId &&
-        p.name.trim().toLowerCase() === name.toLowerCase()
-    );
+    // Solo validar duplicados si cambio el nombre o el sector
+    const changedKey =
+      !editing ||
+      editing.name.trim().toLowerCase() !== name.toLowerCase() ||
+      editing.sectorId !== form.sectorId;
+    const duplicate =
+      changedKey &&
+      products.some(
+        (p) =>
+          p.id !== editing?.id &&
+          p.sectorId === form.sectorId &&
+          p.name.trim().toLowerCase() === name.toLowerCase()
+      );
     if (duplicate) {
       showToast(`Ya existe un producto llamado "${name}" en este sector`, 'error');
       return;

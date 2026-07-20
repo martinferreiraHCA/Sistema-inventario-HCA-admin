@@ -13,8 +13,16 @@ import {
 } from 'firebase/firestore';
 import { FirebaseError } from 'firebase/app';
 import { auth, googleProvider, db } from '../config/firebase';
-import type { AppUser } from '../types';
+import type { AppUser, UserRole } from '../types';
 import { DEFAULT_PERMISSIONS as defaultPerms } from '../types';
+
+// Completa permisos faltantes con los del rol: cuando se agrega un modulo
+// nuevo, los usuarios existentes (cuyo documento no tiene esa clave) lo
+// reciben segun su rol sin necesidad de reconfigurarlos.
+function withPermissionDefaults(data: AppUser): AppUser {
+  const role: UserRole = data.role in defaultPerms ? data.role : 'usuario';
+  return { ...data, permissions: { ...defaultPerms[role], ...(data.permissions || {}) } };
+}
 
 const SUPER_ADMINS = ['martinferreira@hca.edu.uy', 'stem@hca.edu.uy'];
 const ALLOWED_DOMAIN = 'hca.edu.uy';
@@ -75,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
-      return { ...data, id: user.uid };
+      return { ...withPermissionDefaults(data), id: user.uid };
     }
 
     // New user - all @hca.edu.uy users are auto-activated
@@ -125,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 signOut(auth);
                 return;
               }
-              setAppUser({ ...data, id: snap.id });
+              setAppUser({ ...withPermissionDefaults(data), id: snap.id });
             });
           }
         } catch (err) {

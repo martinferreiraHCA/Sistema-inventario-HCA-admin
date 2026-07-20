@@ -11,7 +11,7 @@ export default function CategoriesPage() {
   const { confirm } = useConfirm();
   const { data: categories, loading } = useCollection<Category>('categories');
   const { data: sectors } = useCollection<Sector>('sectors');
-  const { data: products } = useCollection<Product>('products');
+  const { data: products, loading: loadingProducts } = useCollection<Product>('products');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
   const [form, setForm] = useState({ name: '', description: '', sectorId: '' });
@@ -40,12 +40,19 @@ export default function CategoriesPage() {
     e.preventDefault();
     const name = form.name.trim();
     if (!name || !form.sectorId) return;
-    const duplicate = categories.some(
-      (c) =>
-        c.id !== editing?.id &&
-        c.sectorId === form.sectorId &&
-        c.name.trim().toLowerCase() === name.toLowerCase()
-    );
+    // Solo validar duplicados si cambio el nombre o el sector
+    const changedKey =
+      !editing ||
+      editing.name.trim().toLowerCase() !== name.toLowerCase() ||
+      editing.sectorId !== form.sectorId;
+    const duplicate =
+      changedKey &&
+      categories.some(
+        (c) =>
+          c.id !== editing?.id &&
+          c.sectorId === form.sectorId &&
+          c.name.trim().toLowerCase() === name.toLowerCase()
+      );
     if (duplicate) {
       showToast(`Ya existe una categoria llamada "${name}" en este sector`, 'error');
       return;
@@ -86,6 +93,11 @@ export default function CategoriesPage() {
   }
 
   async function handleDelete(cat: Category) {
+    // Sin los productos cargados el chequeo de referencias pasaria en falso
+    if (loadingProducts) {
+      showToast('Cargando datos, intenta de nuevo en unos segundos', 'info');
+      return;
+    }
     const productCount = products.filter((p) => p.categoryId === cat.id).length;
     if (productCount > 0) {
       showToast(

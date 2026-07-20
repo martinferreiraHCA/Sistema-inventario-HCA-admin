@@ -22,24 +22,24 @@ service cloud.firestore {
       return isAuth() && request.auth.token.email in ['martinferreira@hca.edu.uy', 'stem@hca.edu.uy'];
     }
 
-    // Helper: check if user is admin
-    function isAdmin() {
-      return isSuperAdmin() || (isHCA() && getUserData().role == 'admin');
-    }
-
     // Helper: check if user is active
     function isActive() {
       return isHCA() && getUserData().active == true;
     }
 
+    // Helper: check if user is admin (deactivated admins lose write access)
+    function isAdmin() {
+      return isSuperAdmin() || (isActive() && getUserData().role == 'admin');
+    }
+
     // Helper: check if user is admin or gestor
     function isManager() {
-      return isHCA() && getUserData().role in ['admin', 'gestor'];
+      return isSuperAdmin() || (isActive() && getUserData().role in ['admin', 'gestor']);
     }
 
     // Helper: check if user can manage stock (admin, gestor, or relevador)
     function isStockManager() {
-      return isHCA() && getUserData().role in ['admin', 'gestor', 'relevador'];
+      return isSuperAdmin() || (isActive() && getUserData().role in ['admin', 'gestor', 'relevador']);
     }
 
     // Users collection
@@ -99,6 +99,21 @@ service cloud.firestore {
     match /roleConfigs/{roleId} {
       allow read: if isActive();
       allow write: if isAdmin();
+    }
+
+    // Equipment (activos con etiqueta QR)
+    match /equipment/{equipmentId} {
+      allow read: if isActive();
+      allow create, update: if isManager();
+      allow delete: if isAdmin();
+    }
+
+    // Equipment history (reparaciones, mantenimiento, observaciones)
+    match /equipmentLogs/{logId} {
+      allow read: if isActive();
+      // Cualquier usuario activo puede reportar (ej. "no enciende")
+      allow create: if isActive();
+      allow update, delete: if isAdmin();
     }
   }
 }
