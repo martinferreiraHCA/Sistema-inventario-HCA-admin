@@ -11,7 +11,7 @@ import {
   type DocumentData,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import type { Product, StockMovement } from '../types';
+import type { Order, Product, StockMovement } from '../types';
 
 export function useCollection<T extends { id: string }>(collectionName: string) {
   const [data, setData] = useState<T[]>([]);
@@ -99,8 +99,15 @@ export async function registerStockMovement(input: StockMovementInput): Promise<
 
     let newStock = previousStock;
     if (input.type === 'in') newStock = previousStock + input.quantity;
-    else if (input.type === 'out') newStock = Math.max(0, previousStock - input.quantity);
-    else newStock = input.quantity;
+    else if (input.type === 'out') {
+      // Rechazar dentro de la transaccion: el chequeo del formulario usa el
+      // stock cacheado y dos salidas concurrentes podrian dejar un historial
+      // inconsistente (quantity != previousStock - newStock)
+      if (input.quantity > previousStock) {
+        throw new Error(`Stock insuficiente: quedan ${previousStock} ${product.unit || ''}`.trim());
+      }
+      newStock = previousStock - input.quantity;
+    } else newStock = input.quantity;
 
     const now = new Date().toISOString();
     const movementRef = doc(collection(db, 'stockMovements'));
@@ -125,5 +132,87 @@ export async function registerStockMovement(input: StockMovementInput): Promise<
     });
 
     return newStock;
+  });
+}
+
+export interface DeliveryResult {
+  /** Productos del pedido que ya no existen (no se desconto stock) */
+  missing: string[];
+  /** Productos entregados con menos stock del pedido (se desconto lo disponible) */
+  shorted: string[];
+}
+
+/**
+ * Entrega un pedido en UNA sola transaccion: verifica que siga 'approved',
+ * descuenta el stock de cada item registrando su movimiento y marca el pedido
+ * como entregado. Un segundo intento (doble click, otro gestor, reintento tras
+ * un corte) falla con un error claro en lugar de descontar stock dos veces.
+ */
+export async function deliverOrder(
+  orderId: string,
+  responseNotes: string,
+  user: { uid: string; email: string }
+): Promise<DeliveryResult> {
+  return runTransaction(db, async (tx) => {
+    const orderRef = doc(db, 'orders', orderId);
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists()) throw new Error('El pedido ya no existe');
+    const order = orderSnap.data() as Order;
+    if (order.status !== 'approved') {
+      throw new Error(
+        order.status === 'delivered'
+          ? 'El pedido ya fue entregado'
+          : 'El pedido ya no esta aprobado; revisa su estado actual'
+      );
+    }
+
+    // En una transaccion todas las lecturas van antes de las escrituras
+    const productSnaps = [];
+    for (const item of order.items) {
+      productSnaps.push({ item, snap: await tx.get(doc(db, 'products', item.productId)) });
+    }
+
+    const now = new Date().toISOString();
+    const missing: string[] = [];
+    const shorted: string[] = [];
+
+    for (const { item, snap } of productSnaps) {
+      if (!snap.exists()) {
+        missing.push(item.productName);
+        continue;
+      }
+      const product = snap.data() as Product;
+      const previousStock = product.stock ?? 0;
+      // Se entrega lo que hay: el movimiento registra lo realmente descontado
+      const applied = Math.min(previousStock, item.quantity);
+      if (applied < item.quantity) shorted.push(item.productName);
+      if (applied > 0) {
+        const movementRef = doc(collection(db, 'stockMovements'));
+        tx.set(movementRef, {
+          productId: item.productId,
+          productName: product.name,
+          sectorId: product.sectorId,
+          type: 'out',
+          quantity: applied,
+          previousStock,
+          newStock: previousStock - applied,
+          reason:
+            `Pedido entregado a ${order.sectorName} (${order.userName})` +
+            (applied < item.quantity ? ` — pedido: ${item.quantity}, descontado: ${applied}` : ''),
+          userId: user.uid,
+          userEmail: user.email,
+          createdAt: now,
+        });
+        tx.update(doc(db, 'products', item.productId), {
+          stock: previousStock - applied,
+          lastModifiedBy: user.email,
+          lastModifiedAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+
+    tx.update(orderRef, { status: 'delivered', responseNotes, updatedAt: now });
+    return { missing, shorted };
   });
 }

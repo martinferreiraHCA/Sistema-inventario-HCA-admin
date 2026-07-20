@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Plus, Eye, Check, XCircle, Truck, ClipboardList } from 'lucide-react';
-import { useCollection, addDocument, updateDocument, registerStockMovement } from '../hooks/useFirestore';
+import { useCollection, addDocument, updateDocument, deliverOrder } from '../hooks/useFirestore';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import Modal from '../components/Modal';
@@ -105,67 +105,34 @@ export default function OrdersPage() {
 
   async function handleUpdateStatus(order: Order, status: OrderStatus) {
     if (updatingStatus) return;
-
-    // Si otro gestor ya cambio el estado (la coleccion es en tiempo real),
-    // no repetir la accion: entregarlo dos veces descontaria stock doble.
-    const current = orders.find((o) => o.id === order.id);
-    if (!current || current.status !== order.status) {
-      showToast('El pedido fue modificado por otro usuario. Revisa su estado actual.', 'error');
-      setShowDetailModal(false);
-      return;
-    }
-
     setUpdatingStatus(true);
     try {
-      // Al entregar, descontar stock registrando el movimiento de cada item
-      // para que el historial quede consistente con el stock real.
       if (status === 'delivered') {
-        const missing: string[] = [];
-        for (const item of order.items) {
-          try {
-            await registerStockMovement({
-              productId: item.productId,
-              type: 'out',
-              quantity: item.quantity,
-              reason: `Pedido entregado a ${order.sectorName} (${order.userName})`,
-              userId: appUser?.uid || '',
-              userEmail: appUser?.email || '',
-            });
-          } catch (err) {
-            // Un producto eliminado no debe bloquear la entrega del resto
-            if (err instanceof Error && err.message === 'El producto ya no existe') {
-              missing.push(item.productName);
-              continue;
-            }
-            throw err;
-          }
+        // Una sola transaccion: verifica que siga aprobado, descuenta stock
+        // con sus movimientos y marca entregado. Un doble click u otro gestor
+        // simultaneo falla con error claro en lugar de descontar dos veces.
+        const result = await deliverOrder(order.id, responseNotes.trim(), {
+          uid: appUser?.uid || '',
+          email: appUser?.email || '',
+        });
+        if (result.missing.length > 0) {
+          showToast(`Sin descuento de stock (producto eliminado): ${result.missing.join(', ')}`, 'info');
         }
-        if (missing.length > 0) {
-          showToast(`Sin descuento de stock (producto eliminado): ${missing.join(', ')}`, 'info');
+        if (result.shorted.length > 0) {
+          showToast(`Entregado con stock parcial: ${result.shorted.join(', ')}`, 'info');
         }
+        showToast('Pedido entregado y stock descontado');
+      } else {
+        await updateDocument('orders', order.id, {
+          status,
+          responseNotes: responseNotes.trim(),
+        });
+        showToast(status === 'approved' ? 'Pedido aprobado' : status === 'rejected' ? 'Pedido rechazado' : 'Pedido actualizado');
       }
-
-      await updateDocument('orders', order.id, {
-        status,
-        responseNotes: responseNotes.trim(),
-      });
-
-      const statusMessages: Record<OrderStatus, string> = {
-        pending: 'Pedido actualizado',
-        approved: 'Pedido aprobado',
-        rejected: 'Pedido rechazado',
-        delivered: 'Pedido entregado y stock descontado',
-      };
-      showToast(statusMessages[status]);
       setShowDetailModal(false);
     } catch (err) {
       console.error(err);
-      showToast(
-        status === 'delivered'
-          ? 'Error al descontar stock. Revisa los movimientos antes de reintentar.'
-          : 'No se pudo actualizar el pedido',
-        'error'
-      );
+      showToast(err instanceof Error ? err.message : 'No se pudo actualizar el pedido', 'error');
     } finally {
       setUpdatingStatus(false);
     }

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { ConfirmProvider } from './contexts/ConfirmContext';
@@ -15,6 +15,9 @@ import UsersPage from './pages/UsersPage';
 import RolesPage from './pages/RolesPage';
 import ReportsPage from './pages/ReportsPage';
 import RelevamientoPage from './pages/RelevamientoPage';
+import EquipmentPage from './pages/EquipmentPage';
+import EquipmentDetailPage from './pages/EquipmentDetailPage';
+import { APP_BASENAME } from './config/app';
 import type { ModulePermissions } from './types';
 
 function ProtectedRoute({
@@ -25,6 +28,7 @@ function ProtectedRoute({
   permissionKey?: keyof ModulePermissions;
 }) {
   const { appUser, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -35,7 +39,9 @@ function ProtectedRoute({
   }
 
   if (!appUser) {
-    return <Navigate to="/login" replace />;
+    // Guardar el destino: al escanear un QR sin sesion, el login debe
+    // volver a la ficha escaneada y no al dashboard
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
 
   if (permissionKey && !appUser.permissions[permissionKey]) {
@@ -47,6 +53,7 @@ function ProtectedRoute({
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { appUser, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -57,7 +64,8 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (appUser) {
-    return <Navigate to="/dashboard" replace />;
+    const from = (location.state as { from?: string } | null)?.from;
+    return <Navigate to={from || '/dashboard'} replace />;
   }
 
   return <>{children}</>;
@@ -123,6 +131,22 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/equipos"
+          element={
+            <ProtectedRoute permissionKey="equipment">
+              <EquipmentPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/equipos/:equipmentId"
+          element={
+            <ProtectedRoute permissionKey="equipment">
+              <EquipmentDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/costs"
           element={
             <ProtectedRoute permissionKey="costs">
@@ -170,7 +194,7 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter basename="/Sistema-inventario-HCA-admin">
+    <BrowserRouter basename={APP_BASENAME}>
       <AuthProvider>
         <ToastProvider>
           <ConfirmProvider>

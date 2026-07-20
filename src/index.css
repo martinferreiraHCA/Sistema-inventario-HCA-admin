@@ -972,3 +972,35 @@ tr:hover td {
     transform: translateX(0);
   }
 }
+
+/* Impresion de etiquetas QR (planchas A4) */
+#label-print-root {
+  display: none;
+}
+
+.label-page {
+  width: 210mm;
+  height: 297mm;
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+
+@media print {
+  body.printing-labels #root {
+    display: none !important;
+  }
+  body.printing-labels #label-print-root {
+    display: block !important;
+  }
+  body.printing-labels .label-page {
+    page-break-after: always;
+  }
+  body.printing-labels .label-page:last-child {
+    page-break-after: auto;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+}

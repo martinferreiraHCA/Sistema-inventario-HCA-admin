@@ -41,15 +41,17 @@ export default function UsersPage() {
     if (!editing) return;
     setSaving(true);
     try {
-      // Fetch current role config to get permissions
+      // Fetch current role config to get permissions; los defaults del rol
+      // completan modulos agregados despues de guardar esa configuracion
       const roleConfigRef = doc(db, 'roleConfigs', form.role);
       const roleConfigSnap = await getDoc(roleConfigRef);
-      let permissions: ModulePermissions;
+      let permissions: ModulePermissions = { ...DEFAULT_PERMISSIONS[form.role] };
 
       if (roleConfigSnap.exists()) {
-        permissions = roleConfigSnap.data().permissions as ModulePermissions;
-      } else {
-        permissions = { ...DEFAULT_PERMISSIONS[form.role] };
+        permissions = {
+          ...permissions,
+          ...(roleConfigSnap.data().permissions as Partial<ModulePermissions>),
+        };
       }
 
       await updateDocument('users', editing.uid, {

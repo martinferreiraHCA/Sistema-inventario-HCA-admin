@@ -10,8 +10,8 @@ export default function SectorsPage() {
   const { showToast } = useToast();
   const { confirm } = useConfirm();
   const { data: sectors, loading } = useCollection<Sector>('sectors');
-  const { data: categories } = useCollection<Category>('categories');
-  const { data: products } = useCollection<Product>('products');
+  const { data: categories, loading: loadingCategories } = useCollection<Category>('categories');
+  const { data: products, loading: loadingProducts } = useCollection<Product>('products');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Sector | null>(null);
   const [form, setForm] = useState({ name: '', description: '' });
@@ -33,9 +33,12 @@ export default function SectorsPage() {
     e.preventDefault();
     const name = form.name.trim();
     if (!name) return;
-    const duplicate = sectors.some(
-      (s) => s.id !== editing?.id && s.name.trim().toLowerCase() === name.toLowerCase()
-    );
+    // Solo validar duplicados si el nombre cambio: editar un duplicado
+    // preexistente sin renombrarlo no debe quedar bloqueado
+    const nameChanged = !editing || editing.name.trim().toLowerCase() !== name.toLowerCase();
+    const duplicate =
+      nameChanged &&
+      sectors.some((s) => s.id !== editing?.id && s.name.trim().toLowerCase() === name.toLowerCase());
     if (duplicate) {
       showToast(`Ya existe un sector llamado "${name}"`, 'error');
       return;
@@ -74,6 +77,11 @@ export default function SectorsPage() {
   }
 
   async function handleDelete(sector: Sector) {
+    // Sin los datos de categorias/productos el chequeo de referencias pasaria en falso
+    if (loadingCategories || loadingProducts) {
+      showToast('Cargando datos, intenta de nuevo en unos segundos', 'info');
+      return;
+    }
     const categoryCount = categories.filter((c) => c.sectorId === sector.id).length;
     const productCount = products.filter((p) => p.sectorId === sector.id).length;
     if (categoryCount > 0 || productCount > 0) {
