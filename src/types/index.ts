@@ -224,8 +224,26 @@ export interface Equipment {
 
 // Los equipos creados antes de que existieran las categorias eran todos
 // de informatica: ese es el fallback para documentos sin el campo.
-export function equipmentCategoryOf(eq: Equipment): EquipmentCategory {
+export function equipmentCategoryOf(eq: { category?: EquipmentCategory }): EquipmentCategory {
   return eq.category && eq.category in EQUIPMENT_CATEGORY_LABELS ? eq.category : 'tecnologia';
+}
+
+/**
+ * Version publica de un equipo: SOLO campos seguros de compartir.
+ * Vive en la coleccion `equipmentPublic`, legible sin iniciar sesion.
+ * Nunca incluye serie, IP, MAC, usuario asignado, notas ni historial.
+ */
+export interface PublicEquipment {
+  id: string;
+  code: string;
+  name: string;
+  category: EquipmentCategory;
+  type: string;
+  brand: string;
+  model: string;
+  location: string;
+  status: EquipmentStatus;
+  updatedAt: string;
 }
 
 export type EquipmentLogType = 'reparacion' | 'mantenimiento' | 'traslado' | 'observacion' | 'estado';

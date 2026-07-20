@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import './LoginPage.css';
 
@@ -42,6 +43,12 @@ export default function LoginPage() {
 
         <p className="login-footer">
           Solo cuentas <strong>@hca.edu.uy</strong>
+        </p>
+
+        <p style={{ textAlign: 'center', marginTop: 16, fontSize: '0.85rem' }}>
+          <Link to="/publico" style={{ color: 'var(--color-blue)' }}>
+            Ver inventario publico sin iniciar sesion
+          </Link>
         </p>
       </div>
     </div>

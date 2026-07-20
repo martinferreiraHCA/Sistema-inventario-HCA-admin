@@ -1,14 +1,15 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Search, QrCode, Printer, Eye, Laptop } from 'lucide-react';
-import { useCollection, deleteDocument } from '../hooks/useFirestore';
+import { useCollection, deleteDocument, setDocument } from '../hooks/useFirestore';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { publicEquipmentData } from '../utils/equipmentPublic';
 import EquipmentFormModal from '../components/EquipmentFormModal';
 import EquipmentLabelsModal from '../components/EquipmentLabelsModal';
 import EquipmentStatusBadge from '../components/EquipmentStatusBadge';
-import type { Equipment, EquipmentCategory, EquipmentStatus } from '../types';
+import type { Equipment, EquipmentCategory, EquipmentStatus, PublicEquipment } from '../types';
 import { EQUIPMENT_STATUS_LABELS, EQUIPMENT_CATEGORY_LABELS, equipmentCategoryOf } from '../types';
 
 export default function EquipmentPage() {
@@ -17,6 +18,7 @@ export default function EquipmentPage() {
   const { showToast } = useToast();
   const { confirm } = useConfirm();
   const { data: equipment, loading } = useCollection<Equipment>('equipment');
+  const { data: publicEquipment, loading: loadingPublic } = useCollection<PublicEquipment>('equipmentPublic');
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Equipment | null>(null);
@@ -29,6 +31,35 @@ export default function EquipmentPage() {
 
   const isManager = appUser?.role === 'admin' || appUser?.role === 'gestor';
   const isAdmin = appUser?.role === 'admin';
+
+  // Backfill silencioso del espejo publico: genera/actualiza las fichas
+  // publicas de equipos creados antes de que existiera la vista publica,
+  // y elimina espejos huerfanos. Corre una sola vez por visita de un gestor.
+  const syncedPublic = useRef(false);
+  useEffect(() => {
+    if (syncedPublic.current || loading || loadingPublic || !isManager) return;
+    syncedPublic.current = true;
+    (async () => {
+      try {
+        const publicById = new Map(publicEquipment.map((p) => [p.id, p]));
+        for (const eq of equipment) {
+          const pub = publicEquipmentData(eq);
+          const current = publicById.get(eq.id);
+          const outdated =
+            !current ||
+            (Object.keys(pub) as (keyof typeof pub)[]).some((k) => current[k] !== pub[k]);
+          if (outdated) await setDocument('equipmentPublic', eq.id, pub);
+        }
+        for (const pub of publicEquipment) {
+          if (!equipment.some((eq) => eq.id === pub.id)) {
+            await deleteDocument('equipmentPublic', pub.id);
+          }
+        }
+      } catch (err) {
+        console.error('Error sincronizando fichas publicas:', err);
+      }
+    })();
+  }, [loading, loadingPublic, isManager, equipment, publicEquipment]);
 
   const types = useMemo(() => {
     const source = filterCategory
@@ -77,6 +108,9 @@ export default function EquipmentPage() {
     if (!ok) return;
     try {
       await deleteDocument('equipment', eq.id);
+      await deleteDocument('equipmentPublic', eq.id).catch(() => {
+        // El espejo puede no existir todavia; el backfill limpia huerfanos
+      });
       showToast('Equipo eliminado');
     } catch (err) {
       console.error(err);

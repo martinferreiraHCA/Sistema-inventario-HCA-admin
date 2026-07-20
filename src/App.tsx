@@ -17,6 +17,8 @@ import ReportsPage from './pages/ReportsPage';
 import RelevamientoPage from './pages/RelevamientoPage';
 import EquipmentPage from './pages/EquipmentPage';
 import EquipmentDetailPage from './pages/EquipmentDetailPage';
+import PublicCatalogPage from './pages/PublicCatalogPage';
+import PublicEquipmentPage from './pages/PublicEquipmentPage';
 import { APP_BASENAME } from './config/app';
 import type { ModulePermissions } from './types';
 
@@ -39,12 +41,22 @@ function ProtectedRoute({
   }
 
   if (!appUser) {
-    // Guardar el destino: al escanear un QR sin sesion, el login debe
-    // volver a la ficha escaneada y no al dashboard
+    // La ficha de un equipo tiene version publica: quien escanea el QR sin
+    // sesion ve esa version en lugar de chocar con el login
+    const equipmentMatch = location.pathname.match(/^\/equipos\/([^/]+)$/);
+    if (equipmentMatch) {
+      return <Navigate to={`/publico/${equipmentMatch[1]}`} replace />;
+    }
+    // Guardar el destino: despues del login se vuelve a la pagina pedida
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
 
   if (permissionKey && !appUser.permissions[permissionKey]) {
+    // Sin permiso del modulo de equipos tambien se puede ver la ficha publica
+    const equipmentMatch = location.pathname.match(/^\/equipos\/([^/]+)$/);
+    if (equipmentMatch) {
+      return <Navigate to={`/publico/${equipmentMatch[1]}`} replace />;
+    }
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -82,6 +94,9 @@ function AppRoutes() {
           </PublicRoute>
         }
       />
+      {/* Vista publica: accesible sin iniciar sesion */}
+      <Route path="/publico" element={<PublicCatalogPage />} />
+      <Route path="/publico/:equipmentId" element={<PublicEquipmentPage />} />
       <Route
         element={
           <ProtectedRoute>
