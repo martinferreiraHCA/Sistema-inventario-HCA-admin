@@ -183,10 +183,30 @@ export const EQUIPMENT_STATUS_LABELS: Record<EquipmentStatus, string> = {
   de_baja: 'De baja',
 };
 
+export type EquipmentCategory =
+  | 'tecnologia'
+  | 'audiovisual'
+  | 'mobiliario'
+  | 'laboratorio'
+  | 'deportes'
+  | 'herramientas'
+  | 'otro';
+
+export const EQUIPMENT_CATEGORY_LABELS: Record<EquipmentCategory, string> = {
+  tecnologia: 'Tecnologia',
+  audiovisual: 'Audiovisual',
+  mobiliario: 'Mobiliario',
+  laboratorio: 'Laboratorio',
+  deportes: 'Deportes',
+  herramientas: 'Herramientas y mantenimiento',
+  otro: 'Otro',
+};
+
 export interface Equipment {
   id: string;
   code: string; // numero de inventario, ej. HCA-PC-001
   name: string;
+  category: EquipmentCategory;
   type: string;
   brand: string;
   model: string;
@@ -200,6 +220,12 @@ export interface Equipment {
   notes: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// Los equipos creados antes de que existieran las categorias eran todos
+// de informatica: ese es el fallback para documentos sin el campo.
+export function equipmentCategoryOf(eq: Equipment): EquipmentCategory {
+  return eq.category && eq.category in EQUIPMENT_CATEGORY_LABELS ? eq.category : 'tecnologia';
 }
 
 export type EquipmentLogType = 'reparacion' | 'mantenimiento' | 'traslado' | 'observacion' | 'estado';

@@ -3,21 +3,59 @@ import { useCollection, addDocument, updateDocument } from '../hooks/useFirestor
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import Modal from './Modal';
-import type { Equipment, EquipmentStatus, Sector } from '../types';
-import { EQUIPMENT_STATUS_LABELS } from '../types';
+import type { Equipment, EquipmentCategory, EquipmentStatus, Sector } from '../types';
+import { EQUIPMENT_STATUS_LABELS, EQUIPMENT_CATEGORY_LABELS, equipmentCategoryOf } from '../types';
 
-const TYPE_SUGGESTIONS = [
-  'PC escritorio',
-  'Notebook',
-  'Tablet',
-  'Impresora',
-  'Proyector',
-  'Monitor',
-  'Camara',
-  'Router / Red',
-  'Audio',
-  'Otro',
-];
+const TYPE_SUGGESTIONS: Record<EquipmentCategory, string[]> = {
+  tecnologia: [
+    'PC escritorio',
+    'Notebook',
+    'Tablet',
+    'Impresora',
+    'Monitor',
+    'Router / Red',
+    'Servidor',
+    'Camara de seguridad',
+  ],
+  audiovisual: [
+    'Proyector',
+    'Pantalla / TV',
+    'Parlante',
+    'Microfono',
+    'Consola de sonido',
+    'Camara de fotos / video',
+  ],
+  mobiliario: ['Silla', 'Mesa', 'Escritorio', 'Pizarra', 'Armario', 'Estanteria', 'Banco'],
+  laboratorio: [
+    'Microscopio',
+    'Balanza',
+    'Material de vidrio',
+    'Kit de ciencias',
+    'Instrumento de medicion',
+  ],
+  deportes: ['Pelota', 'Colchoneta', 'Red', 'Arco / Tablero', 'Equipamiento de gimnasia'],
+  herramientas: [
+    'Herramienta electrica',
+    'Herramienta manual',
+    'Escalera',
+    'Equipo de limpieza',
+    'Electrodomestico',
+  ],
+  otro: [],
+};
+
+const CODE_PLACEHOLDERS: Record<EquipmentCategory, string> = {
+  tecnologia: 'HCA-PC-001',
+  audiovisual: 'HCA-AV-001',
+  mobiliario: 'HCA-MOB-001',
+  laboratorio: 'HCA-LAB-001',
+  deportes: 'HCA-DEP-001',
+  herramientas: 'HCA-HER-001',
+  otro: 'HCA-EQ-001',
+};
+
+// Solo estos rubros tienen datos de red
+const NETWORK_CATEGORIES: EquipmentCategory[] = ['tecnologia', 'audiovisual'];
 
 interface Props {
   editing: Equipment | null;
@@ -34,6 +72,7 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
   const [form, setForm] = useState({
     code: editing?.code || '',
     name: editing?.name || '',
+    category: (editing ? equipmentCategoryOf(editing) : 'tecnologia') as EquipmentCategory,
     type: editing?.type || '',
     brand: editing?.brand || '',
     model: editing?.model || '',
@@ -48,6 +87,7 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
   });
 
   const activeSectors = sectors.filter((s) => s.active);
+  const showNetworkFields = NETWORK_CATEGORIES.includes(form.category);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,6 +109,7 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
       const data = {
         code,
         name,
+        category: form.category,
         type: form.type.trim(),
         brand: form.brand.trim(),
         model: form.model.trim(),
@@ -123,14 +164,26 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
     <Modal title={editing ? 'Editar Equipo' : 'Nuevo Equipo'} onClose={onClose} maxWidth={680}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+            <div className="form-group">
+              <label className="form-label">Categoria</label>
+              <select
+                className="form-select"
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value as EquipmentCategory })}
+              >
+                {(Object.keys(EQUIPMENT_CATEGORY_LABELS) as EquipmentCategory[]).map((c) => (
+                  <option key={c} value={c}>{EQUIPMENT_CATEGORY_LABELS[c]}</option>
+                ))}
+              </select>
+            </div>
             <div className="form-group">
               <label className="form-label">Nº de inventario</label>
               <input
                 className="form-input"
                 value={form.code}
                 onChange={(e) => setForm({ ...form, code: e.target.value })}
-                placeholder="HCA-PC-001"
+                placeholder={CODE_PLACEHOLDERS[form.category]}
                 required
               />
             </div>
@@ -140,7 +193,7 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
                 className="form-input"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="PC Direccion"
+                placeholder="PC Direccion, Pizarra Aula 3..."
                 required
               />
             </div>
@@ -153,10 +206,10 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value })}
                 list="equipment-types"
-                placeholder="Notebook"
+                placeholder={TYPE_SUGGESTIONS[form.category][0] || 'Tipo de equipo'}
               />
               <datalist id="equipment-types">
-                {TYPE_SUGGESTIONS.map((t) => (
+                {TYPE_SUGGESTIONS[form.category].map((t) => (
                   <option key={t} value={t} />
                 ))}
               </datalist>
@@ -187,24 +240,28 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
                 onChange={(e) => setForm({ ...form, serial: e.target.value })}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label">IP</label>
-              <input
-                className="form-input"
-                value={form.ip}
-                onChange={(e) => setForm({ ...form, ip: e.target.value })}
-                placeholder="192.168.1.10"
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">MAC</label>
-              <input
-                className="form-input"
-                value={form.mac}
-                onChange={(e) => setForm({ ...form, mac: e.target.value })}
-                placeholder="A0:B1:C2:D3:E4:05"
-              />
-            </div>
+            {showNetworkFields && (
+              <>
+                <div className="form-group">
+                  <label className="form-label">IP</label>
+                  <input
+                    className="form-input"
+                    value={form.ip}
+                    onChange={(e) => setForm({ ...form, ip: e.target.value })}
+                    placeholder="192.168.1.10"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">MAC</label>
+                  <input
+                    className="form-input"
+                    value={form.mac}
+                    onChange={(e) => setForm({ ...form, mac: e.target.value })}
+                    placeholder="A0:B1:C2:D3:E4:05"
+                  />
+                </div>
+              </>
+            )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
             <div className="form-group">

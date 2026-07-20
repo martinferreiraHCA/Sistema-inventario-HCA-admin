@@ -19,7 +19,7 @@ import EquipmentStatusBadge from '../components/EquipmentStatusBadge';
 import { qrSvgMarkup, equipmentUrl, downloadQrPng } from '../utils/qr';
 import { formatCurrency, formatDateTime } from '../utils/format';
 import type { Equipment, EquipmentLog, EquipmentLogType, Sector } from '../types';
-import { EQUIPMENT_LOG_LABELS } from '../types';
+import { EQUIPMENT_LOG_LABELS, EQUIPMENT_CATEGORY_LABELS, equipmentCategoryOf } from '../types';
 
 const LOG_BADGES: Record<EquipmentLogType, string> = {
   reparacion: 'badge-red',
@@ -128,6 +128,7 @@ export default function EquipmentDetailPage() {
   }
 
   const infoRows: [string, string][] = [
+    ['Categoria', EQUIPMENT_CATEGORY_LABELS[equipmentCategoryOf(eq)]],
     ['Tipo', eq.type],
     ['Marca', eq.brand],
     ['Modelo', eq.model],
