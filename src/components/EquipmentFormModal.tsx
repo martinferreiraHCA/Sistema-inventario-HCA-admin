@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { useCollection, addDocument, updateDocument } from '../hooks/useFirestore';
+import { useCollection, addDocument, updateDocument, setDocument } from '../hooks/useFirestore';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { publicEquipmentData } from '../utils/equipmentPublic';
 import Modal from './Modal';
 import type { Equipment, EquipmentCategory, EquipmentStatus, Sector } from '../types';
 import { EQUIPMENT_STATUS_LABELS, EQUIPMENT_CATEGORY_LABELS, equipmentCategoryOf } from '../types';
@@ -123,7 +124,9 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
         notes: form.notes.trim(),
       };
 
+      let savedId: string;
       if (editing) {
+        savedId = editing.id;
         await updateDocument('equipment', editing.id, data);
         // Un cambio de estado queda registrado en el historial del equipo
         if (form.status !== editing.status) {
@@ -139,9 +142,9 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
         }
         showToast('Equipo actualizado');
       } else {
-        const id = await addDocument('equipment', data);
+        savedId = await addDocument('equipment', data);
         await addDocument('equipmentLogs', {
-          equipmentId: id,
+          equipmentId: savedId,
           equipmentCode: code,
           type: 'observacion',
           description: 'Equipo dado de alta en el sistema',
@@ -151,6 +154,8 @@ export default function EquipmentFormModal({ editing, equipment, onClose }: Prop
         });
         showToast('Equipo creado');
       }
+      // Mantener el espejo publico (solo campos seguros) al dia
+      await setDocument('equipmentPublic', savedId, publicEquipmentData(data));
       onClose();
     } catch (err) {
       console.error(err);

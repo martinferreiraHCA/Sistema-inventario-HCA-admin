@@ -115,5 +115,13 @@ service cloud.firestore {
       allow create: if isActive();
       allow update, delete: if isAdmin();
     }
+
+    // Public mirror of equipment: ONLY safe-to-share fields (code, name,
+    // category, type, brand, model, location, status). Anyone can read it,
+    // even without signing in — this powers the public QR view.
+    match /equipmentPublic/{equipmentId} {
+      allow read: if true;
+      allow create, update, delete: if isManager();
+    }
   }
 }

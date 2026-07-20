@@ -5,6 +5,7 @@ import {
   onSnapshot,
   doc,
   addDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   runTransaction,
@@ -53,6 +54,14 @@ export async function addDocument(collectionName: string, data: DocumentData) {
     updatedAt: new Date().toISOString(),
   });
   return docRef.id;
+}
+
+/** Crea o reemplaza un documento con un id conocido */
+export async function setDocument(collectionName: string, docId: string, data: DocumentData) {
+  await setDoc(doc(db, collectionName, docId), {
+    ...data,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function updateDocument(
