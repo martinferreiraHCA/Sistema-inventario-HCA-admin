@@ -16,9 +16,11 @@ import {
   Building2,
   AlertTriangle,
   ClipboardList,
+  DollarSign,
 } from 'lucide-react';
 import { useCollection } from '../hooks/useFirestore';
 import { useAuth } from '../contexts/AuthContext';
+import { formatCurrency } from '../utils/format';
 import type { Product, Sector, Order, Category } from '../types';
 
 const CHART_COLORS = ['#242B59', '#BF1818', '#0C5F55', '#ED8B0D', '#E1523D', '#A4B01D', '#252525'];
@@ -43,6 +45,15 @@ export default function DashboardPage() {
   const pendingOrders = useMemo(
     () => orders.filter((o) => o.status === 'pending'),
     [orders]
+  );
+
+  const inventoryValue = useMemo(
+    () =>
+      filteredProducts.reduce(
+        (sum, p) => (p.active ? sum + p.stock * p.cost : sum),
+        0
+      ),
+    [filteredProducts]
   );
 
   const stockBySector = useMemo(() => {
@@ -119,6 +130,18 @@ export default function DashboardPage() {
           <div>
             <div className="stat-value">{pendingOrders.length}</div>
             <div className="stat-label">Pedidos pendientes</div>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'rgba(164, 176, 29, 0.15)' }}>
+            <DollarSign size={24} color="#0C5F55" />
+          </div>
+          <div>
+            <div className="stat-value" style={{ fontSize: '1.3rem' }}>
+              {formatCurrency(inventoryValue)}
+            </div>
+            <div className="stat-label">Valor del inventario</div>
           </div>
         </div>
       </div>

@@ -1,10 +1,17 @@
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, Building2 } from 'lucide-react';
 import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
-import type { Sector } from '../types';
+import { useToast } from '../contexts/ToastContext';
+import { useConfirm } from '../contexts/ConfirmContext';
+import Modal from '../components/Modal';
+import type { Sector, Category, Product } from '../types';
 
 export default function SectorsPage() {
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const { data: sectors, loading } = useCollection<Sector>('sectors');
+  const { data: categories, loading: loadingCategories } = useCollection<Category>('categories');
+  const { data: products, loading: loadingProducts } = useCollection<Product>('products');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Sector | null>(null);
   const [form, setForm] = useState({ name: '', description: '' });
@@ -24,7 +31,18 @@ export default function SectorsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    const name = form.name.trim();
+    if (!name) return;
+    // Solo validar duplicados si el nombre cambio: editar un duplicado
+    // preexistente sin renombrarlo no debe quedar bloqueado
+    const nameChanged = !editing || editing.name.trim().toLowerCase() !== name.toLowerCase();
+    const duplicate =
+      nameChanged &&
+      sectors.some((s) => s.id !== editing?.id && s.name.trim().toLowerCase() === name.toLowerCase());
+    if (duplicate) {
+      showToast(`Ya existe un sector llamado "${name}"`, 'error');
+      return;
+    }
     setSaving(true);
     try {
       if (editing) {
@@ -40,20 +58,53 @@ export default function SectorsPage() {
         });
       }
       setShowModal(false);
+      showToast(editing ? 'Sector actualizado' : 'Sector creado');
     } catch (err) {
       console.error(err);
+      showToast('No se pudo guardar el sector', 'error');
     } finally {
       setSaving(false);
     }
   }
 
   async function handleToggleActive(sector: Sector) {
-    await updateDocument('sectors', sector.id, { active: !sector.active });
+    try {
+      await updateDocument('sectors', sector.id, { active: !sector.active });
+    } catch (err) {
+      console.error(err);
+      showToast('No se pudo cambiar el estado del sector', 'error');
+    }
   }
 
   async function handleDelete(sector: Sector) {
-    if (!confirm(`Eliminar sector "${sector.name}"?`)) return;
-    await deleteDocument('sectors', sector.id);
+    // Sin los datos de categorias/productos el chequeo de referencias pasaria en falso
+    if (loadingCategories || loadingProducts) {
+      showToast('Cargando datos, intenta de nuevo en unos segundos', 'info');
+      return;
+    }
+    const categoryCount = categories.filter((c) => c.sectorId === sector.id).length;
+    const productCount = products.filter((p) => p.sectorId === sector.id).length;
+    if (categoryCount > 0 || productCount > 0) {
+      showToast(
+        `No se puede eliminar "${sector.name}": tiene ${categoryCount} categoria(s) y ${productCount} producto(s) asociados. Reasignalos o eliminalos primero, o desactiva el sector.`,
+        'error'
+      );
+      return;
+    }
+    const ok = await confirm({
+      title: 'Eliminar sector',
+      message: `Se eliminara el sector "${sector.name}" de forma permanente.`,
+      confirmLabel: 'Eliminar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteDocument('sectors', sector.id);
+      showToast('Sector eliminado');
+    } catch (err) {
+      console.error(err);
+      showToast('No se pudo eliminar el sector', 'error');
+    }
   }
 
   return (
@@ -123,15 +174,11 @@ export default function SectorsPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>{editing ? 'Editar Sector' : 'Nuevo Sector'}</h2>
-              <button className="btn-icon" onClick={() => setShowModal(false)}>
-                &times;
-              </button>
-            </div>
-            <form onSubmit={handleSubmit}>
+        <Modal
+          title={editing ? 'Editar Sector' : 'Nuevo Sector'}
+          onClose={() => setShowModal(false)}
+        >
+          <form onSubmit={handleSubmit}>
               <div className="modal-body">
                 <div className="form-group">
                   <label className="form-label">Nombre</label>
@@ -162,8 +209,7 @@ export default function SectorsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

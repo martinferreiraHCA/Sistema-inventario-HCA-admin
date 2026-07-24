@@ -3,8 +3,9 @@ import { Shield, Save } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useCollection, updateDocument } from '../hooks/useFirestore';
+import { useToast } from '../contexts/ToastContext';
 import type { ModulePermissions, UserRole, AppUser } from '../types';
-import { DEFAULT_PERMISSIONS } from '../types';
+import { DEFAULT_PERMISSIONS, ROLE_LABELS } from '../types';
 
 const MODULE_LABELS: Record<keyof ModulePermissions, string> = {
   dashboard: 'Dashboard',
@@ -12,22 +13,25 @@ const MODULE_LABELS: Record<keyof ModulePermissions, string> = {
   categories: 'Categorias',
   products: 'Productos',
   stock: 'Movimientos de Stock',
+  relevamiento: 'Relevamiento de Stock',
   costs: 'Costos',
   orders: 'Pedidos',
+  equipment: 'Equipos (QR)',
   users: 'Gestion de Usuarios',
   roles: 'Configuracion de Roles',
   reports: 'Reportes',
 };
 
-const ROLES: { key: UserRole; label: string }[] = [
-  { key: 'gestor', label: 'Gestor' },
-  { key: 'usuario', label: 'Usuario' },
-];
+const ROLES: { key: UserRole; label: string }[] = (['gestor', 'relevador', 'usuario'] as UserRole[]).map(
+  (key) => ({ key, label: ROLE_LABELS[key] })
+);
 
 export default function RolesPage() {
+  const { showToast } = useToast();
   const { data: users } = useCollection<AppUser>('users');
   const [roleConfigs, setRoleConfigs] = useState<Record<string, ModulePermissions>>({
     gestor: { ...DEFAULT_PERMISSIONS.gestor },
+    relevador: { ...DEFAULT_PERMISSIONS.relevador },
     usuario: { ...DEFAULT_PERMISSIONS.usuario },
   });
   const [saving, setSaving] = useState(false);
@@ -39,9 +43,12 @@ export default function RolesPage() {
         const ref = doc(db, 'roleConfigs', role.key);
         const snap = await getDoc(ref);
         if (snap.exists()) {
+          // Completar con los defaults del rol: los modulos agregados despues
+          // de guardar la configuracion no existen en el documento almacenado
+          const stored = snap.data().permissions as Partial<ModulePermissions>;
           setRoleConfigs((prev) => ({
             ...prev,
-            [role.key]: snap.data().permissions as ModulePermissions,
+            [role.key]: { ...DEFAULT_PERMISSIONS[role.key], ...stored },
           }));
         }
       }
@@ -84,6 +91,7 @@ export default function RolesPage() {
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       console.error(err);
+      showToast('No se pudo guardar la configuracion de roles', 'error');
     } finally {
       setSaving(false);
     }
@@ -122,7 +130,7 @@ export default function RolesPage() {
                 {ROLES.map((role) => (
                   <th key={role.key} style={{ textAlign: 'center' }}>
                     <span
-                      className={`badge ${role.key === 'gestor' ? 'badge-blue' : 'badge-gray'}`}
+                      className={`badge ${role.key === 'gestor' ? 'badge-blue' : role.key === 'relevador' ? 'badge-orange' : 'badge-gray'}`}
                       style={{ display: 'inline-block' }}
                     >
                       {role.label}

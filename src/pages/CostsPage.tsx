@@ -1,9 +1,14 @@
 import { useState, useMemo } from 'react';
 import { DollarSign, Search } from 'lucide-react';
 import { useCollection, updateDocument } from '../hooks/useFirestore';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { formatCurrency } from '../utils/format';
 import type { Product, Sector, Category } from '../types';
 
 export default function CostsPage() {
+  const { appUser } = useAuth();
+  const { showToast } = useToast();
   const { data: products } = useCollection<Product>('products');
   const { data: sectors } = useCollection<Sector>('sectors');
   const { data: categories } = useCollection<Category>('categories');
@@ -13,6 +18,8 @@ export default function CostsPage() {
   const [editCost, setEditCost] = useState(0);
 
   const activeSectors = sectors.filter((s) => s.active);
+  const sectorNameById = useMemo(() => new Map(sectors.map((s) => [s.id, s.name])), [sectors]);
+  const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
 
   const filteredProducts = useMemo(() => {
     let result = products.filter((p) => p.active);
@@ -30,8 +37,22 @@ export default function CostsPage() {
   );
 
   async function saveCost(productId: string) {
-    await updateDocument('products', productId, { cost: editCost });
-    setEditingId(null);
+    if (!Number.isFinite(editCost) || editCost < 0) {
+      showToast('El costo debe ser un numero mayor o igual a 0', 'error');
+      return;
+    }
+    try {
+      await updateDocument('products', productId, {
+        cost: editCost,
+        lastModifiedBy: appUser?.email || '',
+        lastModifiedAt: new Date().toISOString(),
+      });
+      setEditingId(null);
+      showToast('Costo actualizado');
+    } catch (err) {
+      console.error(err);
+      showToast('No se pudo actualizar el costo', 'error');
+    }
   }
 
   return (
@@ -42,7 +63,7 @@ export default function CostsPage() {
           <DollarSign size={20} color="#0C5F55" />
           <div>
             <div className="stat-value" style={{ fontSize: '1.25rem' }}>
-              ${totalValue.toLocaleString('es-UY', { minimumFractionDigits: 2 })}
+              {formatCurrency(totalValue)}
             </div>
             <div className="stat-label">Valor total del inventario filtrado</div>
           </div>
@@ -102,10 +123,10 @@ export default function CostsPage() {
                   <td style={{ fontWeight: 600 }}>{product.name}</td>
                   <td>
                     <span className="badge badge-blue">
-                      {sectors.find((s) => s.id === product.sectorId)?.name || '-'}
+                      {sectorNameById.get(product.sectorId) || '-'}
                     </span>
                   </td>
-                  <td>{categories.find((c) => c.id === product.categoryId)?.name || '-'}</td>
+                  <td>{categoryNameById.get(product.categoryId) || '-'}</td>
                   <td>{product.stock} {product.unit}</td>
                   <td>
                     {editingId === product.id ? (
@@ -140,14 +161,12 @@ export default function CostsPage() {
                         }}
                         title="Click para editar"
                       >
-                        ${product.cost.toFixed(2)}
+                        {formatCurrency(product.cost)}
                       </span>
                     )}
                   </td>
                   <td style={{ fontWeight: 600 }}>
-                    ${(product.stock * product.cost).toLocaleString('es-UY', {
-                      minimumFractionDigits: 2,
-                    })}
+                    {formatCurrency(product.stock * product.cost)}
                   </td>
                 </tr>
               ))}

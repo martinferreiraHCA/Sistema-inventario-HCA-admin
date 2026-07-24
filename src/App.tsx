@@ -1,5 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
+import { ConfirmProvider } from './contexts/ConfirmContext';
 import AppLayout from './components/layout/AppLayout';
 import LoginPage from './components/auth/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -12,6 +14,12 @@ import OrdersPage from './pages/OrdersPage';
 import UsersPage from './pages/UsersPage';
 import RolesPage from './pages/RolesPage';
 import ReportsPage from './pages/ReportsPage';
+import RelevamientoPage from './pages/RelevamientoPage';
+import EquipmentPage from './pages/EquipmentPage';
+import EquipmentDetailPage from './pages/EquipmentDetailPage';
+import PublicCatalogPage from './pages/PublicCatalogPage';
+import PublicEquipmentPage from './pages/PublicEquipmentPage';
+import { APP_BASENAME } from './config/app';
 import type { ModulePermissions } from './types';
 
 function ProtectedRoute({
@@ -22,6 +30,7 @@ function ProtectedRoute({
   permissionKey?: keyof ModulePermissions;
 }) {
   const { appUser, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -32,10 +41,22 @@ function ProtectedRoute({
   }
 
   if (!appUser) {
-    return <Navigate to="/login" replace />;
+    // La ficha de un equipo tiene version publica: quien escanea el QR sin
+    // sesion ve esa version en lugar de chocar con el login
+    const equipmentMatch = location.pathname.match(/^\/equipos\/([^/]+)$/);
+    if (equipmentMatch) {
+      return <Navigate to={`/publico/${equipmentMatch[1]}`} replace />;
+    }
+    // Guardar el destino: despues del login se vuelve a la pagina pedida
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
 
   if (permissionKey && !appUser.permissions[permissionKey]) {
+    // Sin permiso del modulo de equipos tambien se puede ver la ficha publica
+    const equipmentMatch = location.pathname.match(/^\/equipos\/([^/]+)$/);
+    if (equipmentMatch) {
+      return <Navigate to={`/publico/${equipmentMatch[1]}`} replace />;
+    }
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -44,6 +65,7 @@ function ProtectedRoute({
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { appUser, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -54,7 +76,8 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (appUser) {
-    return <Navigate to="/dashboard" replace />;
+    const from = (location.state as { from?: string } | null)?.from;
+    return <Navigate to={from || '/dashboard'} replace />;
   }
 
   return <>{children}</>;
@@ -71,6 +94,9 @@ function AppRoutes() {
           </PublicRoute>
         }
       />
+      {/* Vista publica: accesible sin iniciar sesion */}
+      <Route path="/publico" element={<PublicCatalogPage />} />
+      <Route path="/publico/:equipmentId" element={<PublicEquipmentPage />} />
       <Route
         element={
           <ProtectedRoute>
@@ -108,6 +134,30 @@ function AppRoutes() {
           element={
             <ProtectedRoute permissionKey="stock">
               <StockPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/relevamiento"
+          element={
+            <ProtectedRoute permissionKey="relevamiento">
+              <RelevamientoPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/equipos"
+          element={
+            <ProtectedRoute permissionKey="equipment">
+              <EquipmentPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/equipos/:equipmentId"
+          element={
+            <ProtectedRoute permissionKey="equipment">
+              <EquipmentDetailPage />
             </ProtectedRoute>
           }
         />
@@ -159,9 +209,13 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter basename="/Sistema-inventario-HCA-admin">
+    <BrowserRouter basename={APP_BASENAME}>
       <AuthProvider>
-        <AppRoutes />
+        <ToastProvider>
+          <ConfirmProvider>
+            <AppRoutes />
+          </ConfirmProvider>
+        </ToastProvider>
       </AuthProvider>
     </BrowserRouter>
   );

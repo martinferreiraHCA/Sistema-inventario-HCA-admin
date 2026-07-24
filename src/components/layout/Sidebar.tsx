@@ -12,9 +12,12 @@ import {
   DollarSign,
   ShieldCheck,
   FileBarChart,
+  ClipboardCheck,
+  QrCode,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ModulePermissions } from '../../types';
+import { ROLE_LABELS } from '../../types';
 
 interface MenuItem {
   label: string;
@@ -40,6 +43,18 @@ const menuItems: MenuItem[] = [
       { label: 'Productos', path: '/products', permissionKey: 'products' },
       { label: 'Movimientos de Stock', path: '/stock', permissionKey: 'stock' },
     ],
+  },
+  {
+    label: 'Relevamiento',
+    icon: <ClipboardCheck size={20} />,
+    path: '/relevamiento',
+    permissionKey: 'relevamiento',
+  },
+  {
+    label: 'Equipos',
+    icon: <QrCode size={20} />,
+    path: '/equipos',
+    permissionKey: 'equipment',
   },
   {
     label: 'Costos',
@@ -194,11 +209,7 @@ export default function Sidebar() {
               <div className="sidebar-user-info">
                 <span className="sidebar-user-name">{appUser?.displayName}</span>
                 <span className="sidebar-user-role">
-                  {appUser?.role === 'admin'
-                    ? 'Administrador'
-                    : appUser?.role === 'gestor'
-                    ? 'Gestor'
-                    : 'Usuario'}
+                  {appUser ? ROLE_LABELS[appUser.role] : ''}
                 </span>
               </div>
             )}

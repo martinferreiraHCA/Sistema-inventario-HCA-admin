@@ -17,9 +17,9 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    // Helper: check if user is admin
-    function isAdmin() {
-      return isHCA() && getUserData().role == 'admin';
+    // Helper: super admins always keep access, even if their document is broken
+    function isSuperAdmin() {
+      return isAuth() && request.auth.token.email in ['martinferreira@hca.edu.uy', 'stem@hca.edu.uy'];
     }
 
     // Helper: check if user is active
@@ -27,17 +27,33 @@ service cloud.firestore {
       return isHCA() && getUserData().active == true;
     }
 
+    // Helper: check if user is admin (deactivated admins lose write access)
+    function isAdmin() {
+      return isSuperAdmin() || (isActive() && getUserData().role == 'admin');
+    }
+
     // Helper: check if user is admin or gestor
     function isManager() {
-      return isHCA() && getUserData().role in ['admin', 'gestor'];
+      return isSuperAdmin() || (isActive() && getUserData().role in ['admin', 'gestor']);
+    }
+
+    // Helper: check if user can manage stock (admin, gestor, or relevador)
+    function isStockManager() {
+      return isSuperAdmin() || (isActive() && getUserData().role in ['admin', 'gestor', 'relevador']);
     }
 
     // Users collection
     match /users/{userId} {
-      // Users can read their own document, admins can read all
-      allow read: if isAuth() && (request.auth.uid == userId || isAdmin());
-      // Users can create their own document on first login
-      allow create: if isAuth() && request.auth.uid == userId;
+      // Any HCA user can read users (needed for admin to list all users)
+      allow read: if isHCA();
+      // Users can create their own document on first login, but never with
+      // privileges: only super admins may self-assign a role other than 'usuario'
+      allow create: if isAuth() && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && (isSuperAdmin()
+            || (request.resource.data.role == 'usuario'
+                && request.resource.data.permissions.users == false
+                && request.resource.data.permissions.roles == false));
       // Only admins can update user documents
       allow update: if isAdmin();
       allow delete: if isAdmin();
@@ -58,13 +74,14 @@ service cloud.firestore {
     // Products collection
     match /products/{productId} {
       allow read: if isActive();
-      allow create, update, delete: if isManager();
+      allow create, delete: if isManager();
+      allow update: if isStockManager();
     }
 
     // Stock movements collection
     match /stockMovements/{movementId} {
       allow read: if isActive();
-      allow create: if isManager();
+      allow create: if isStockManager();
       allow update, delete: if isAdmin();
     }
 
@@ -82,6 +99,29 @@ service cloud.firestore {
     match /roleConfigs/{roleId} {
       allow read: if isActive();
       allow write: if isAdmin();
+    }
+
+    // Equipment (activos con etiqueta QR)
+    match /equipment/{equipmentId} {
+      allow read: if isActive();
+      allow create, update: if isManager();
+      allow delete: if isAdmin();
+    }
+
+    // Equipment history (reparaciones, mantenimiento, observaciones)
+    match /equipmentLogs/{logId} {
+      allow read: if isActive();
+      // Cualquier usuario activo puede reportar (ej. "no enciende")
+      allow create: if isActive();
+      allow update, delete: if isAdmin();
+    }
+
+    // Public mirror of equipment: ONLY safe-to-share fields (code, name,
+    // category, type, brand, model, location, status). Anyone can read it,
+    // even without signing in — this powers the public QR view.
+    match /equipmentPublic/{equipmentId} {
+      allow read: if true;
+      allow create, update, delete: if isManager();
     }
   }
 }

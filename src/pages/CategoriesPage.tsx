@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, FolderTree } from 'lucide-react';
 import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
-import type { Category, Sector } from '../types';
+import { useToast } from '../contexts/ToastContext';
+import { useConfirm } from '../contexts/ConfirmContext';
+import Modal from '../components/Modal';
+import type { Category, Sector, Product } from '../types';
 
 export default function CategoriesPage() {
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const { data: categories, loading } = useCollection<Category>('categories');
   const { data: sectors } = useCollection<Sector>('sectors');
+  const { data: products, loading: loadingProducts } = useCollection<Product>('products');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
   const [form, setForm] = useState({ name: '', description: '', sectorId: '' });
@@ -32,7 +38,25 @@ export default function CategoriesPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name.trim() || !form.sectorId) return;
+    const name = form.name.trim();
+    if (!name || !form.sectorId) return;
+    // Solo validar duplicados si cambio el nombre o el sector
+    const changedKey =
+      !editing ||
+      editing.name.trim().toLowerCase() !== name.toLowerCase() ||
+      editing.sectorId !== form.sectorId;
+    const duplicate =
+      changedKey &&
+      categories.some(
+        (c) =>
+          c.id !== editing?.id &&
+          c.sectorId === form.sectorId &&
+          c.name.trim().toLowerCase() === name.toLowerCase()
+      );
+    if (duplicate) {
+      showToast(`Ya existe una categoria llamada "${name}" en este sector`, 'error');
+      return;
+    }
     setSaving(true);
     try {
       if (editing) {
@@ -50,20 +74,52 @@ export default function CategoriesPage() {
         });
       }
       setShowModal(false);
+      showToast(editing ? 'Categoria actualizada' : 'Categoria creada');
     } catch (err) {
       console.error(err);
+      showToast('No se pudo guardar la categoria', 'error');
     } finally {
       setSaving(false);
     }
   }
 
   async function handleToggleActive(cat: Category) {
-    await updateDocument('categories', cat.id, { active: !cat.active });
+    try {
+      await updateDocument('categories', cat.id, { active: !cat.active });
+    } catch (err) {
+      console.error(err);
+      showToast('No se pudo cambiar el estado de la categoria', 'error');
+    }
   }
 
   async function handleDelete(cat: Category) {
-    if (!confirm(`Eliminar categoria "${cat.name}"?`)) return;
-    await deleteDocument('categories', cat.id);
+    // Sin los productos cargados el chequeo de referencias pasaria en falso
+    if (loadingProducts) {
+      showToast('Cargando datos, intenta de nuevo en unos segundos', 'info');
+      return;
+    }
+    const productCount = products.filter((p) => p.categoryId === cat.id).length;
+    if (productCount > 0) {
+      showToast(
+        `No se puede eliminar "${cat.name}": tiene ${productCount} producto(s) asociados. Reasignalos o eliminalos primero, o desactiva la categoria.`,
+        'error'
+      );
+      return;
+    }
+    const ok = await confirm({
+      title: 'Eliminar categoria',
+      message: `Se eliminara la categoria "${cat.name}" de forma permanente.`,
+      confirmLabel: 'Eliminar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteDocument('categories', cat.id);
+      showToast('Categoria eliminada');
+    } catch (err) {
+      console.error(err);
+      showToast('No se pudo eliminar la categoria', 'error');
+    }
   }
 
   return (
@@ -156,15 +212,11 @@ export default function CategoriesPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>{editing ? 'Editar Categoria' : 'Nueva Categoria'}</h2>
-              <button className="btn-icon" onClick={() => setShowModal(false)}>
-                &times;
-              </button>
-            </div>
-            <form onSubmit={handleSubmit}>
+        <Modal
+          title={editing ? 'Editar Categoria' : 'Nueva Categoria'}
+          onClose={() => setShowModal(false)}
+        >
+          <form onSubmit={handleSubmit}>
               <div className="modal-body">
                 <div className="form-group">
                   <label className="form-label">Sector</label>
@@ -211,8 +263,7 @@ export default function CategoriesPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
